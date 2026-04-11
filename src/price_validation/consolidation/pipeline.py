@@ -34,7 +34,7 @@ from typing import Callable, Optional
 import openpyxl
 from openpyxl import Workbook
 
-from price_validation.config.paths import PRICING_TEMPLATE_DIR
+from price_validation.config.paths import PRICING_TEMPLATE_DIR, MASTER_PRICE_SOURCE_DIR
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -170,6 +170,9 @@ def _ingest_to_dir(
             # short is like "DT_CHICONY" or "bNB_LITEON"; supplier = part after first "_"
             supplier_name_from_file = short.split("_", 1)[1] if "_" in short else short
             _fix_gtk_suppliers(dest, supplier_name_from_file, log, seg_label)
+            # ── Copy to master price source folder ──
+            master_src_seg_dir = MASTER_PRICE_SOURCE_DIR / seg_label
+            shutil.copy2(dest, master_src_seg_dir / dest.name)
             copied.append(dest)
             log(f"[{seg_label}] Ingested: {supplier_dir.name}/{latest.name}", "INFO")
 
@@ -400,6 +403,16 @@ def _run_stages(
     log: Callable[[str, str], None],
 ) -> Optional[Path]:
     """Run ingest → segment → all → rebate_only; return rebate path or None on failure."""
+    import shutil as _shutil
+
+    # ── Clear master price source folders before each run ──
+    _MASTER_SEGS = ("bNB", "cNB", "DT", "Peripheral")
+    for seg in _MASTER_SEGS:
+        seg_dir_ms = MASTER_PRICE_SOURCE_DIR / seg
+        seg_dir_ms.mkdir(parents=True, exist_ok=True)
+        for f in seg_dir_ms.glob("*.xlsx"):
+            f.unlink(missing_ok=True)
+
     raw_dir = tmp / "raw"
     seg_dir = tmp / "segment"
     all_dir = tmp / "all"

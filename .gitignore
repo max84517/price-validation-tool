@@ -15,9 +15,14 @@ config.json
 data/pricing_template/*
 data/supplier_shipments/*
 data/report/*
+data/master price source/**/*.xlsx
 !data/pricing_template/.gitkeep
 !data/supplier_shipments/.gitkeep
 !data/report/.gitkeep
+!data/master price source/bNB/.gitkeep
+!data/master price source/cNB/.gitkeep
+!data/master price source/DT/.gitkeep
+!data/master price source/Peripheral/.gitkeep
 
 # VS Code
 .vscode/
