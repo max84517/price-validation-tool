@@ -12,9 +12,12 @@ poetry.lock
 
 # Project runtime data (do not commit sensitive files)
 config.json
-data/pricing_template/
-data/supplier_shipments/
-data/report/
+data/pricing_template/*
+data/supplier_shipments/*
+data/report/*
+!data/pricing_template/.gitkeep
+!data/supplier_shipments/.gitkeep
+!data/report/.gitkeep
 
 # VS Code
 .vscode/
