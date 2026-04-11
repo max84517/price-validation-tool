@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "price-validation-tool"
+version = "0.1.0"
+description = "Validate pricing template against supplier shipment data"
+authors = ["max84517"]
+packages = [{ include = "price_validation", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+openpyxl = "^3.1.5"
+pandas = "^2.2"
+
+[tool.poetry.scripts]
+price-validation = "price_validation.main:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

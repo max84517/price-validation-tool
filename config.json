@@ -1,0 +1,9 @@
+{
+  "pricing_template_path": "C:/Users/LiMa595/OneDrive - HP Inc/Input Device/17. Automation Projects/price-validation-tool/data/pricing_template/Pricing_Template_InputDevices.xlsx",
+  "suppliers": [
+    {
+      "name": "Primax",
+      "shipment_folder": "C:/Users/LiMa595/OneDrive - HP Inc/Spending and rebate reports - 文件/Primax/Spending and rebate"
+    }
+  ]
+}
