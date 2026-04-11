@@ -2,7 +2,7 @@
 report/writer.py — write per-supplier Excel reports, one sheet per month.
 """
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -95,8 +95,8 @@ def write_report(
     Files are stored under data/report/<UTC timestamp>/.
     Returns the path of the written file.
     """
-    now_utc = datetime.now(timezone.utc)
-    folder_name = now_utc.strftime("%Y%m%d_%H%M%S_UTC")
+    now_local = datetime.now()
+    folder_name = now_local.strftime("%Y-%m-%d %H:%M:%S")
     out_dir = REPORT_DIR / folder_name
     out_dir.mkdir(parents=True, exist_ok=True)
 

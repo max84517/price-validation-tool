@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "price-validation-tool"
-version = "0.1.0"
+version = "1.0.1"
 description = "Validate pricing template against supplier shipment data"
 authors = ["max84517"]
 packages = [{ include = "price_validation", from = "src" }]
