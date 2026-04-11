@@ -108,7 +108,10 @@ def _fix_gtk_suppliers(
     This prevents mis-labelled or empty GTK Suppliers values from breaking
     the per-supplier split during validation.
     """
-    wb = openpyxl.load_workbook(xlsx_path)
+    # data_only=True: formula cells are loaded as their cached values (literals).
+    # This prevents openpyxl from stripping cached values on save, which would
+    # cause consolidation (also data_only=True) to read those cells as None.
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
     for sheet_name in wb.sheetnames:
         if not _is_fy_sheet(sheet_name):
             continue
