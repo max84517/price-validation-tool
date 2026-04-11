@@ -786,8 +786,12 @@ class App(tk.Tk):
 
         def _run():
             from pathlib import Path
-            from price_validation.config.paths import SUPPLIER_SHIPMENTS_DIR
+            from datetime import datetime
+            from price_validation.config.paths import SUPPLIER_SHIPMENTS_DIR, REPORT_DIR
             errors: list[str] = []
+            # Fix the report folder for this entire run so all suppliers land in the same folder
+            report_dir = REPORT_DIR / datetime.now().strftime("%Y-%m-%d %H-%M")
+            report_dir.mkdir(parents=True, exist_ok=True)
             reports: list[str] = []
 
             for rd in selected_rows:
@@ -821,7 +825,7 @@ class App(tk.Tk):
                     self.after(0, lambda n=supplier_name, c=len(mismatches): self._log(
                         f"[{n}] Compare done. {c} mismatch(es) found.",
                         level="WARN" if c else "SUCCESS"))
-                    out = write_report(supplier_name, fy, months, mismatches)
+                    out = write_report(supplier_name, fy, months, mismatches, report_dir)
                     reports.append(str(out))
                     self.after(0, lambda n=supplier_name, o=out: self._log(
                         f"[{n}] Report saved: {o}", level="SUCCESS"))

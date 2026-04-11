@@ -10,7 +10,7 @@ Built with Python, Tkinter dark-mode UI, pandas, and openpyxl.
 
 Download the latest release from the [Releases page](https://github.com/max84517/price-validation-tool/releases/latest).
 
-1. Download `PriceValidation-v1.1.2.zip`
+1. Download `PriceValidation-v1.1.6.zip`
 2. Extract the zip to any folder (keep all files together)
 3. Run **`PriceValidation.exe`**
 
@@ -210,6 +210,9 @@ Columns: `HP/ODM Part#`, `Color`, `Product`, `Size`, `ODM & Site`, `GTK Supplier
 ---
 
 ## Changelog
+
+### v1.1.6
+- Fixed: When validating multiple suppliers, all reports are now saved into the same timestamped folder even if the run spans across a minute boundary.
 
 ### v1.1.5
 - UI: Supplier list rebuilt with a shared grid layout — Supplier Name, Shipment Folder, and Latest File columns are now pixel-aligned under their headers.

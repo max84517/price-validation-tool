@@ -92,15 +92,17 @@ def write_report(
     fy: str,
     months: list[str],
     records: list[MismatchRecord],
+    out_dir: Path | None = None,
 ) -> Path:
     """
     Create one Excel workbook for *supplier_name* with one sheet per month.
-    Files are stored under data/report/<UTC timestamp>/.
+    Files are stored under *out_dir* if provided, otherwise a new timestamped
+    folder under data/report/ is created.
     Returns the path of the written file.
     """
-    now_local = datetime.now()
-    folder_name = now_local.strftime("%Y-%m-%d %H-%M")
-    out_dir = REPORT_DIR / folder_name
+    if out_dir is None:
+        folder_name = datetime.now().strftime("%Y-%m-%d %H-%M")
+        out_dir = REPORT_DIR / folder_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
     safe_name = "".join(c if c.isalnum() or c in "-_ " else "_" for c in supplier_name)
