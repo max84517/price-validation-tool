@@ -1,14 +1,14 @@
-@echo off
+﻿@echo off
 setlocal
 
-REM ── build_exe.bat ──────────────────────────────────────────────────────────
+REM â”€â”€ build_exe.bat â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 REM Builds PriceValidation.exe (onedir) and packages it as a zip for release.
 REM  - Builds to C:\Temp\PVTool\dist  (avoids OneDrive WinError 5)
 REM  - Copies result back to dist\PriceValidation\
 REM  - Creates dist\PriceValidation-v<version>.zip
-REM ──────────────────────────────────────────────────────────────────────────
+REM â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-set VERSION=1.1.0
+set VERSION=1.1.1
 set BUILD_DIR=C:\Temp\PVTool
 set PROJECT_DIR=%~dp0
 
@@ -40,3 +40,4 @@ echo To create a GitHub release:
 echo   gh release create v%VERSION% %ZIP_NAME% --title "v%VERSION%" --notes "Release v%VERSION%"
 
 endlocal
+
