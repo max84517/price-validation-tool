@@ -170,9 +170,9 @@ def _ingest_to_dir(
             # short is like "DT_CHICONY" or "bNB_LITEON"; supplier = part after first "_"
             supplier_name_from_file = short.split("_", 1)[1] if "_" in short else short
             _fix_gtk_suppliers(dest, supplier_name_from_file, log, seg_label)
-            # ── Copy to master price source folder ──
+            # ── Copy to master price source folder (keep original filename) ──
             master_src_seg_dir = MASTER_PRICE_SOURCE_DIR / seg_label
-            shutil.copy2(dest, master_src_seg_dir / dest.name)
+            shutil.copy2(dest, master_src_seg_dir / latest.name)
             copied.append(dest)
             log(f"[{seg_label}] Ingested: {supplier_dir.name}/{latest.name}", "INFO")
 
