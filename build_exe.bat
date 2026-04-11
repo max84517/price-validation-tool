@@ -8,7 +8,7 @@ REM  - Copies result back to dist\PriceValidation\
 REM  - Creates dist\PriceValidation-v<version>.zip
 REM ──────────────────────────────────────────────────────────────────────────
 
-set VERSION=1.0.3
+set VERSION=1.1.0
 set BUILD_DIR=C:\Temp\PVTool
 set PROJECT_DIR=%~dp0
 
