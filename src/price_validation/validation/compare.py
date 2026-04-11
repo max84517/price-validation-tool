@@ -32,6 +32,7 @@ class MismatchRecord:
     pt_rebate: Optional[float] = None
     shp_rebate: Optional[float] = None
     comment: str = ""
+    is_blank_warning: bool = False  # True when values match (both 0) but one cell was blank
 
 
 def _feature_from_row(row: pd.Series, source: str) -> dict:
@@ -101,11 +102,17 @@ def compare(
 
             if in_pt and rebate_col in pt_indexed.columns:
                 v = pt_row.get(rebate_col)
-                pt_val = None if pd.isna(v) else v  # type: ignore[arg-type]
+                pt_val = None if (v is None or (isinstance(v, float) and pd.isna(v))) else v  # type: ignore[arg-type]
 
             if in_shp and rebate_col in shp_indexed.columns:
                 v = shp_row.get(rebate_col)
-                shp_val = None if pd.isna(v) else v  # type: ignore[arg-type]
+                shp_val = None if (v is None or (isinstance(v, float) and pd.isna(v))) else v  # type: ignore[arg-type]
+
+            # Treat None as 0 for comparison
+            pt_cmp  = 0.0 if pt_val  is None else pt_val
+            shp_cmp = 0.0 if shp_val is None else shp_val
+            pt_blank  = (pt_val  is None) and in_pt
+            shp_blank = (shp_val is None) and in_shp
 
             if not in_pt:
                 comment = "Exists in Supplier Shipment only (not in Master Table)"
@@ -125,16 +132,41 @@ def compare(
                     pt_rebate=pt_val, comment=comment, **feat
                 )
                 records.append(rec)
-            elif pt_val != shp_val:
+            elif pt_cmp != shp_cmp:
+                # Build blank-cell notes for mismatch comment
+                blank_notes = []
+                if pt_blank:
+                    blank_notes.append("Master Table cell is blank (treated as 0)")
+                if shp_blank:
+                    blank_notes.append("Supplier Shipment cell is blank (treated as 0)")
+                blank_suffix = " | " + "; ".join(blank_notes) if blank_notes else ""
                 comment = (
-                    f"Price mismatch — Pricing Template: {pt_val}, "
-                    f"Supplier Shipment: {shp_val}"
+                    f"Price mismatch — Master Table: {pt_cmp}, "
+                    f"Supplier Shipment: {shp_cmp}{blank_suffix}"
                 )
                 rec = MismatchRecord(
                     month=month, index_value=idx,
                     exists_in_pt=True, exists_in_shp=True,
                     pt_rebate=pt_val, shp_rebate=shp_val,
                     comment=comment, **feat
+                )
+                records.append(rec)
+            elif pt_blank or shp_blank:
+                # Values match (both 0) but at least one cell is blank — emit a warning
+                blank_sides = []
+                if pt_blank:
+                    blank_sides.append("Master Table")
+                if shp_blank:
+                    blank_sides.append("Supplier Shipment")
+                comment = (
+                    f"{' and '.join(blank_sides)} cell(s) are blank (treated as 0). "
+                    "Values match — please verify and fill in the correct rebate if applicable."
+                )
+                rec = MismatchRecord(
+                    month=month, index_value=idx,
+                    exists_in_pt=True, exists_in_shp=True,
+                    pt_rebate=pt_val, shp_rebate=shp_val,
+                    comment=comment, is_blank_warning=True, **feat
                 )
                 records.append(rec)
 

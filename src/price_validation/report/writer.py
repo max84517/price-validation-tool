@@ -22,6 +22,7 @@ _HEADER_FONT = Font(bold=True, color="FFFFFF", size=10)
 _OK_FILL     = PatternFill("solid", fgColor="C6EFCE")
 _WARN_FILL   = PatternFill("solid", fgColor="FFEB9C")
 _ERR_FILL    = PatternFill("solid", fgColor="FFC7CE")
+_BLANK_FILL  = PatternFill("solid", fgColor="BDD7EE")  # blue — values match but cell blank
 
 _FEATURE_HEADERS = [
     "HP/ODM Part#", "Color", "Product", "Size",
@@ -67,7 +68,9 @@ def _write_sheet(
             rec.odm_site, rec.gtk_suppliers, rec.platforms,
             rec.pt_rebate, rec.shp_rebate, rec.comment,
         ]
-        if not rec.exists_in_pt or not rec.exists_in_shp:
+        if rec.is_blank_warning:
+            fill = _BLANK_FILL
+        elif not rec.exists_in_pt or not rec.exists_in_shp:
             fill = _WARN_FILL
         else:
             fill = _ERR_FILL

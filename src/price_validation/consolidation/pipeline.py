@@ -96,6 +96,39 @@ def _should_remove_col(header: object) -> bool:
 
 # ── Stage 1: Ingest ───────────────────────────────────────────────────────────
 
+def _fix_gtk_suppliers(
+    xlsx_path: Path,
+    supplier_name: str,
+    log: Callable[[str, str], None],
+    seg_label: str,
+) -> None:
+    """
+    Open *xlsx_path*, find the 'GTK Suppliers' column (header on row 2),
+    and overwrite every data-row cell with *supplier_name*.
+    This prevents mis-labelled or empty GTK Suppliers values from breaking
+    the per-supplier split during validation.
+    """
+    wb = openpyxl.load_workbook(xlsx_path)
+    for sheet_name in wb.sheetnames:
+        if not _is_fy_sheet(sheet_name):
+            continue
+        ws = wb[sheet_name]
+        # Header is on row 2; row 1 is a title row
+        header_row = [c.value for c in ws[2]]
+        gtk_col_idx = None
+        for i, h in enumerate(header_row):
+            if isinstance(h, str) and h.strip().lower() == "gtk suppliers":
+                gtk_col_idx = i + 1  # openpyxl is 1-based
+                break
+        if gtk_col_idx is None:
+            log(f"[{seg_label}] 'GTK Suppliers' column not found in {xlsx_path.name} sheet {sheet_name}", "WARN")
+            continue
+        for row in ws.iter_rows(min_row=3, max_row=ws.max_row):
+            row[gtk_col_idx - 1].value = supplier_name
+    wb.save(xlsx_path)
+    wb.close()
+
+
 def _ingest_to_dir(
     source_paths: dict[str, str],
     raw_dir: Path,
@@ -133,6 +166,10 @@ def _ingest_to_dir(
             dest = seg_raw_dir / f"{short}.xlsx"
             import shutil
             shutil.copy2(latest, dest)
+            # ── Overwrite GTK Suppliers column with supplier name from filename ──
+            # short is like "DT_CHICONY" or "bNB_LITEON"; supplier = part after first "_"
+            supplier_name_from_file = short.split("_", 1)[1] if "_" in short else short
+            _fix_gtk_suppliers(dest, supplier_name_from_file, log, seg_label)
             copied.append(dest)
             log(f"[{seg_label}] Ingested: {supplier_dir.name}/{latest.name}", "INFO")
 
