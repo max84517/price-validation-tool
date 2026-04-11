@@ -96,7 +96,7 @@ def write_report(
     Returns the path of the written file.
     """
     now_local = datetime.now()
-    folder_name = now_local.strftime("%Y-%m-%d %H:%M")
+    folder_name = now_local.strftime("%Y-%m-%d %H-%M")
     out_dir = REPORT_DIR / folder_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
