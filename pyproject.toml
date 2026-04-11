@@ -6,9 +6,12 @@ authors = ["max84517"]
 packages = [{ include = "price_validation", from = "src" }]
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = ">=3.12,<3.15"
 openpyxl = "^3.1.5"
 pandas = "^2.2"
+
+[tool.poetry.group.dev.dependencies]
+pyinstaller = "^6.0"
 
 [tool.poetry.scripts]
 price-validation = "price_validation.main:main"
