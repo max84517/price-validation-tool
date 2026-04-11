@@ -339,6 +339,48 @@ class App(tk.Tk):
         sep = tk.Frame(self, bg=BORDER, height=1)
         sep.pack(fill=tk.X, padx=8, pady=(4, 0))
 
+        # ── Build Pricing Template section ──
+        build_outer = tk.Frame(self, bg=BG2)
+        build_outer.pack(side=tk.TOP, fill=tk.X, padx=8, pady=(2, 0))
+
+        build_hdr = tk.Frame(build_outer, bg=BG2)
+        build_hdr.pack(fill=tk.X, padx=4, pady=(4, 2))
+        tk.Label(build_hdr, text="Build Pricing Template", bg=BG2, fg=FG,
+                 font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT)
+        self._build_pt_btn = tk.Button(build_hdr, text="Build PT",
+                                       command=self._on_build_pt)
+        _style_button(self._build_pt_btn, accent=True)
+        self._build_pt_btn.pack(side=tk.RIGHT, padx=4)
+
+        build_body = tk.Frame(build_outer, bg=BG2)
+        build_body.pack(fill=tk.X, padx=4, pady=(0, 4))
+
+        self._nb_kb_var    = tk.StringVar(value=self._cfg.get("nb_kb", ""))
+        self._dt_kb_var    = tk.StringVar(value=self._cfg.get("dt_kb", ""))
+        self._peripheral_var = tk.StringVar(value=self._cfg.get("peripheral", ""))
+
+        for row_i, (label, var) in enumerate([
+            ("NB KB",      self._nb_kb_var),
+            ("DT KB",      self._dt_kb_var),
+            ("Peripheral", self._peripheral_var),
+        ]):
+            tk.Label(build_body, text=f"{label}:", bg=BG2, fg=FG_DIM,
+                     font=("Segoe UI", 9), width=9, anchor="e").grid(
+                row=row_i, column=0, padx=(0, 4), pady=2, sticky="e")
+            ent = tk.Entry(build_body, textvariable=var)
+            _style_entry(ent)
+            ent.grid(row=row_i, column=1, sticky="ew", pady=2)
+            btn = tk.Button(build_body, text="Browse…",
+                            command=lambda v=var, k=label: self._browse_source_folder(v, k))
+            _style_button(btn)
+            btn.configure(font=("Segoe UI", 8), pady=2)
+            btn.grid(row=row_i, column=2, padx=(4, 0), pady=2)
+
+        build_body.columnconfigure(1, weight=1)
+
+        sep2 = tk.Frame(self, bg=BORDER, height=1)
+        sep2.pack(fill=tk.X, padx=8, pady=(2, 0))
+
         # ── Supplier list header ──
         hdr = tk.Frame(self, bg=BG3)
         hdr.pack(fill=tk.X, padx=8, pady=(2, 0))
@@ -415,6 +457,132 @@ class App(tk.Tk):
             self._pt_path_var.set(path)
             self._cfg["pricing_template_path"] = path
             settings.save(self._cfg)
+
+    def _browse_source_folder(self, var: tk.StringVar, label: str):
+        folder = filedialog.askdirectory(title=f"Select {label} Folder")
+        if folder:
+            var.set(folder)
+            self._save_source_folders()
+
+    def _save_source_folders(self):
+        self._cfg["nb_kb"]      = self._nb_kb_var.get().strip()
+        self._cfg["dt_kb"]      = self._dt_kb_var.get().strip()
+        self._cfg["peripheral"] = self._peripheral_var.get().strip()
+        settings.save(self._cfg)
+
+    # ---------------------------------------------------------------------- #
+    # Build Pricing Template
+    # ---------------------------------------------------------------------- #
+    def _on_build_pt(self):
+        nb_kb      = self._nb_kb_var.get().strip()
+        dt_kb      = self._dt_kb_var.get().strip()
+        peripheral = self._peripheral_var.get().strip()
+
+        missing = [lbl for lbl, val in [("NB KB", nb_kb), ("DT KB", dt_kb), ("Peripheral", peripheral)] if not val]
+        if missing:
+            messagebox.showerror("Missing Folders", f"Please set folders for: {', '.join(missing)}")
+            return
+
+        self._save_source_folders()
+        self._build_pt_btn.configure(state=tk.DISABLED)
+        self._set_status("Scanning source folders…")
+
+        source_paths = {"nb_kb": nb_kb, "dt_kb": dt_kb, "peripheral": peripheral}
+
+        def _scan():
+            from price_validation.consolidation.pipeline import get_available_fy_sheets
+            try:
+                sheets = get_available_fy_sheets(source_paths, self._log)
+            except Exception as exc:
+                self.after(0, lambda e=exc: (
+                    self._log(f"Build PT scan error: {e}", "ERROR"),
+                    self._build_pt_btn.configure(state=tk.NORMAL),
+                    self._set_status("Build PT failed."),
+                ))
+                return
+
+            if not sheets:
+                self.after(0, lambda: (
+                    messagebox.showerror("No FY Sheets", "No FY sheets found in source folders."),
+                    self._build_pt_btn.configure(state=tk.NORMAL),
+                    self._set_status("Build PT failed — no FY sheets found."),
+                ))
+                return
+
+            self.after(0, lambda s=sheets: self._show_fy_selector(source_paths, s))
+
+        threading.Thread(target=_scan, daemon=True).start()
+
+    def _show_fy_selector(self, source_paths: dict, sheets: list[str]):
+        """Show FY sheet selection dialog then run final write step."""
+        dialog = tk.Toplevel(self)
+        dialog.title("Select FY Sheet")
+        dialog.configure(bg=BG)
+        dialog.resizable(False, False)
+        dialog.grab_set()
+
+        # center
+        self.update_idletasks()
+        w, h = 320, 140
+        x = self.winfo_rootx() + (self.winfo_width() - w) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - h) // 2
+        dialog.geometry(f"{w}x{h}+{x}+{y}")
+
+        tk.Label(dialog, text="Select FY sheet to write into InputDevice:",
+                 bg=BG, fg=FG, font=("Segoe UI", 9)).pack(padx=16, pady=(14, 4))
+
+        fy_var = tk.StringVar(value=sheets[-1])  # default to latest
+        menu = tk.OptionMenu(dialog, fy_var, *sheets)
+        menu.configure(bg=BG3, fg=FG, activebackground=ACCENT,
+                       activeforeground=BTN_FG, relief=tk.FLAT, font=("Segoe UI", 9))
+        menu["menu"].configure(bg=BG3, fg=FG)
+        menu.pack(padx=16, fill=tk.X)
+
+        btn_frame = tk.Frame(dialog, bg=BG)
+        btn_frame.pack(pady=(12, 0))
+
+        def _confirm():
+            fy = fy_var.get()
+            dialog.destroy()
+            self._run_build_pt(source_paths, fy)
+
+        ok_btn = tk.Button(btn_frame, text="Build", command=_confirm)
+        _style_button(ok_btn, accent=True)
+        ok_btn.pack(side=tk.LEFT, padx=6)
+        cancel_btn = tk.Button(btn_frame, text="Cancel", command=lambda: (
+            dialog.destroy(),
+            self._build_pt_btn.configure(state=tk.NORMAL),
+            self._set_status("Build PT cancelled."),
+        ))
+        _style_button(cancel_btn)
+        cancel_btn.pack(side=tk.LEFT, padx=6)
+
+    def _run_build_pt(self, source_paths: dict, fy_sheet: str):
+        self._set_status(f"Building Pricing Template ({fy_sheet})…")
+        self._log(f"Writing FY sheet '{fy_sheet}' to InputDevice…", "INFO")
+
+        def _run():
+            from price_validation.consolidation.pipeline import run_full_pipeline
+            try:
+                out = run_full_pipeline(source_paths, fy_sheet, self._log)
+                def _done():
+                    self._build_pt_btn.configure(state=tk.NORMAL)
+                    self._pt_path_var.set(str(out))
+                    self._cfg["pricing_template_path"] = str(out)
+                    settings.save(self._cfg)
+                    self._set_status(f"Pricing Template built: {out.name}")
+                    self._log(f"PT saved to: {out}", "SUCCESS")
+                    messagebox.showinfo("Done", f"Pricing Template saved to:\n{out}")
+                self.after(0, _done)
+            except Exception as exc:
+                self.after(0, lambda e=exc: (
+                    self._log(f"Build PT error: {e}", "ERROR"),
+                    self._build_pt_btn.configure(state=tk.NORMAL),
+                    self._set_status("Build PT failed."),
+                    messagebox.showerror("Build PT Error", str(e)),
+                ))
+
+        threading.Thread(target=_run, daemon=True).start()
 
     # ---------------------------------------------------------------------- #
     # Supplier list management
