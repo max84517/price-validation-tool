@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Poetry
+poetry.lock
+
+# Project runtime data (do not commit sensitive files)
+config.json
+data/pricing_template/
+data/supplier_shipments/
+data/report/
+
+# VS Code
+.vscode/
