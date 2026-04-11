@@ -309,6 +309,11 @@ class App(tk.Tk):
         _style_button(clear_files_btn)
         clear_files_btn.pack(side=tk.RIGHT, padx=4)
 
+        open_report_btn = tk.Button(toolbar, text="Open Report",
+                                    command=self._on_open_report)
+        _style_button(open_report_btn)
+        open_report_btn.pack(side=tk.RIGHT, padx=4)
+
         # Select-all toggle
         self._select_all_var = tk.BooleanVar(value=True)
         sel_all_cb = tk.Checkbutton(
@@ -366,18 +371,6 @@ class App(tk.Tk):
         sep2 = tk.Frame(self, bg=BORDER, height=1)
         sep2.pack(fill=tk.X, padx=8, pady=(2, 0))
 
-        # ── Supplier list header ──
-        hdr = tk.Frame(self, bg=BG3)
-        hdr.pack(fill=tk.X, padx=8, pady=(2, 0))
-        tk.Label(hdr, text="", bg=BG3, width=3).pack(side=tk.LEFT)
-        tk.Label(hdr, text="Supplier Name", bg=BG3, fg=FG,
-                 font=("Segoe UI", 9, "bold"), width=18, anchor="w").pack(side=tk.LEFT)
-        tk.Label(hdr, text="Shipment Folder", bg=BG3, fg=FG,
-                 font=("Segoe UI", 9, "bold"), width=36, anchor="w").pack(side=tk.LEFT)
-        tk.Label(hdr, text="", bg=BG3, width=8).pack(side=tk.RIGHT)  # remove btn
-        tk.Label(hdr, text="Latest File", bg=BG3, fg=FG,
-                 font=("Segoe UI", 9, "bold"), anchor="w").pack(side=tk.LEFT, fill=tk.X, expand=True)
-
         # ── Status bar (pack BOTTOM first so list frame fills the rest) ──
         self._status_var = tk.StringVar(value="Ready.")
         status_bar = tk.Label(self, textvariable=self._status_var,
@@ -427,10 +420,27 @@ class App(tk.Tk):
             "<Configure>",
             lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
         )
-        canvas.create_window((0, 0), window=self._supplier_frame, anchor="nw")
+        _sf_win = canvas.create_window((0, 0), window=self._supplier_frame, anchor="nw")
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(_sf_win, width=e.width))
         canvas.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # ── supplier_frame column layout (shared by header + all rows) ──
+        self._supplier_frame.columnconfigure(0, minsize=24)   # checkbox
+        self._supplier_frame.columnconfigure(1, minsize=110)  # supplier name
+        self._supplier_frame.columnconfigure(2, weight=1)     # shipment folder
+        self._supplier_frame.columnconfigure(3, weight=1)     # latest file
+        self._supplier_frame.columnconfigure(4, minsize=64)   # remove button
+
+        # ── Header row (row 0) ──
+        for _col, _text in enumerate(["", "Supplier Name", "Shipment Folder", "Latest File", ""]):
+            tk.Label(self._supplier_frame, text=_text, bg=BG3, fg=FG,
+                     font=("Segoe UI", 9, "bold"), anchor="center").grid(
+                row=0, column=_col, sticky="nsew", pady=4, padx=2)
+        tk.Frame(self._supplier_frame, bg=BORDER, height=1).grid(
+            row=1, column=0, columnspan=5, sticky="ew")
+        self._next_supplier_row = 2
 
     def _browse_source_folder(self, var: tk.StringVar, label: str):
         folder = filedialog.askdirectory(title=f"Select {label} Folder")
@@ -571,48 +581,50 @@ class App(tk.Tk):
         }
         self._supplier_rows.append(row_data)
 
-        row_frame = tk.Frame(self._supplier_frame, bg=BG, pady=3)
-        row_frame.pack(fill=tk.X, padx=4)
-        row_data["frame"] = row_frame
+        r = self._next_supplier_row
+        self._next_supplier_row += 2
 
         cb = tk.Checkbutton(
-            row_frame, variable=row_data["checked"],
+            self._supplier_frame, variable=row_data["checked"],
             bg=BG, fg=FG, selectcolor=BG3,
             activebackground=BG, activeforeground=FG,
         )
-        cb.pack(side=tk.LEFT)
+        cb.grid(row=r, column=0, pady=4)
 
-        tk.Label(row_frame, text=name, bg=BG, fg=FG,
-                 font=("Segoe UI", 9), width=18, anchor="w").pack(side=tk.LEFT)
-        tk.Label(row_frame, text=folder, bg=BG, fg=FG_DIM,
-                 font=("Segoe UI", 8), width=36, anchor="w",
-                 wraplength=260).pack(side=tk.LEFT)
+        name_lbl = tk.Label(self._supplier_frame, text=name, bg=BG, fg=FG,
+                            font=("Segoe UI", 9), anchor="center")
+        name_lbl.grid(row=r, column=1, sticky="ew", pady=4)
+
+        folder_var = tk.StringVar(value=folder)
+        folder_lbl = tk.Entry(self._supplier_frame, textvariable=folder_var,
+                              state="readonly", readonlybackground=BG,
+                              fg=FG_DIM, relief=tk.FLAT,
+                              highlightthickness=0,
+                              font=("Segoe UI", 8), justify="center")
+        folder_lbl.grid(row=r, column=2, sticky="ew", padx=6, pady=4)
+
+        file_lbl = tk.Label(self._supplier_frame, textvariable=row_data["file_var"],
+                            bg=BG, fg=ACCENT, font=("Segoe UI", 8), anchor="center")
+        file_lbl.grid(row=r, column=3, sticky="ew", padx=6, pady=4)
 
         remove_btn = tk.Button(
-            row_frame, text="Remove",
+            self._supplier_frame, text="Remove",
             command=lambda rd=row_data: self._remove_supplier(rd),
         )
         _style_button(remove_btn)
         remove_btn.configure(font=("Segoe UI", 8), pady=2)
-        remove_btn.pack(side=tk.RIGHT, padx=(4, 0))
-
-        # Read-only entry fills remaining space — user can scroll to see full name
-        file_ent = tk.Entry(
-            row_frame, textvariable=row_data["file_var"],
-            state="readonly", readonlybackground=BG2,
-            fg=ACCENT, relief=tk.FLAT,
-            highlightthickness=1, highlightbackground=BORDER,
-            font=("Segoe UI", 8),
-        )
-        file_ent.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 4))
+        remove_btn.grid(row=r, column=4, padx=(0, 4), pady=4)
 
         sep = tk.Frame(self._supplier_frame, bg=BORDER, height=1)
-        sep.pack(fill=tk.X, padx=4)
+        sep.grid(row=r + 1, column=0, columnspan=5, sticky="ew")
+
+        row_data["_widgets"] = [cb, name_lbl, folder_lbl, file_lbl, remove_btn, sep]
 
     def _remove_supplier(self, row_data: dict):
         if not messagebox.askyesno("Remove", f"Remove supplier '{row_data['name']}'?"):
             return
-        row_data["frame"].destroy()
+        for w in row_data.get("_widgets", []):
+            w.destroy()
         self._supplier_rows.remove(row_data)
         self._save_suppliers()
 
@@ -627,6 +639,25 @@ class App(tk.Tk):
         state = self._select_all_var.get()
         for rd in self._supplier_rows:
             rd["checked"].set(state)
+
+    # ---------------------------------------------------------------------- #
+    # Open latest report folder
+    # ---------------------------------------------------------------------- #
+    def _on_open_report(self):
+        from price_validation.config.paths import REPORT_DIR
+        import subprocess
+        if not REPORT_DIR.exists():
+            messagebox.showinfo("No Reports", "Report folder does not exist yet.")
+            return
+        folders = sorted(
+            [d for d in REPORT_DIR.iterdir() if d.is_dir()],
+            key=lambda d: d.name,
+        )
+        if not folders:
+            messagebox.showinfo("No Reports", "No report folders found.")
+            return
+        latest = folders[-1]
+        subprocess.Popen(f'explorer "{latest}"')
 
     # ---------------------------------------------------------------------- #
     # Clear cached shipment files
