@@ -18,7 +18,6 @@ from price_validation.config.paths import CONFIG_FILE
 
 
 _DEFAULT: dict[str, Any] = {
-    "pricing_template_path": "",
     "suppliers": [],
     "nb_kb": "",
     "dt_kb": "",

@@ -321,21 +321,6 @@ class App(tk.Tk):
         )
         sel_all_cb.pack(side=tk.RIGHT, padx=8)
 
-        # ── Pricing template path row ──
-        pt_frame = tk.Frame(self, bg=BG, pady=4)
-        pt_frame.pack(side=tk.TOP, fill=tk.X, padx=16)
-        tk.Label(pt_frame, text="Pricing Template:", bg=BG, fg=FG_DIM,
-                 font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        self._pt_path_var = tk.StringVar(
-            value=self._cfg.get("pricing_template_path", ""))
-        pt_ent = tk.Entry(pt_frame, textvariable=self._pt_path_var, width=60)
-        _style_entry(pt_ent)
-        pt_ent.pack(side=tk.LEFT, padx=(8, 4))
-        browse_pt = tk.Button(pt_frame, text="Browse…",
-                              command=self._browse_pt)
-        _style_button(browse_pt)
-        browse_pt.pack(side=tk.LEFT)
-
         sep = tk.Frame(self, bg=BORDER, height=1)
         sep.pack(fill=tk.X, padx=8, pady=(4, 0))
 
@@ -447,17 +432,6 @@ class App(tk.Tk):
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-    def _browse_pt(self):
-        path = filedialog.askopenfilename(
-            title="Select Pricing Template Excel",
-            filetypes=[("Excel files", "*.xlsx *.xlsm"), ("All files", "*.*")],
-            initialdir=str(PRICING_TEMPLATE_DIR),
-        )
-        if path:
-            self._pt_path_var.set(path)
-            self._cfg["pricing_template_path"] = path
-            settings.save(self._cfg)
-
     def _browse_source_folder(self, var: tk.StringVar, label: str):
         folder = filedialog.askdirectory(title=f"Select {label} Folder")
         if folder:
@@ -567,9 +541,6 @@ class App(tk.Tk):
                 out = run_full_pipeline(source_paths, fy_sheet, self._log)
                 def _done():
                     self._build_pt_btn.configure(state=tk.NORMAL)
-                    self._pt_path_var.set(str(out))
-                    self._cfg["pricing_template_path"] = str(out)
-                    settings.save(self._cfg)
                     self._set_status(f"Pricing Template built: {out.name}")
                     self._log(f"PT saved to: {out}", "SUCCESS")
                     messagebox.showinfo("Done", f"Pricing Template saved to:\n{out}")
@@ -756,11 +727,12 @@ class App(tk.Tk):
             messagebox.showinfo("No Selection", "No suppliers selected.")
             return
 
-        pt_path = self._pt_path_var.get().strip()
-        if not pt_path:
+        pt_path = str(PRICING_TEMPLATE_DIR / "Pricing_Template_InputDevices.xlsx")
+        if not (PRICING_TEMPLATE_DIR / "Pricing_Template_InputDevices.xlsx").exists():
             messagebox.showerror(
                 "No Pricing Template",
-                "Please select the Pricing Template Excel file first.",
+                "Pricing_Template_InputDevices.xlsx not found.\n"
+                "Use 'Build PT' to generate it first.",
             )
             return
 
