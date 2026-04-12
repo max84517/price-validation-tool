@@ -87,18 +87,25 @@ def _write_sheet(
     ws.freeze_panes = "A2"
 
 
+# Month abbreviation -> zero-padded number string
+_MONTH_NUM = {mo: f"{i+1:02d}" for i, mo in enumerate(
+    ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+)}
+
+
 def write_report(
     supplier_name: str,
     fy: str,
     months: list[str],
     records: list[MismatchRecord],
     out_dir: Path | None = None,
-) -> Path:
+) -> list[Path]:
     """
-    Create one Excel workbook for *supplier_name* with one sheet per month.
+    Create one Excel workbook per month for *supplier_name*.
+    Filename format: ValidationReport_<Supplier>_FY<fy>_<MM>.xlsx
     Files are stored under *out_dir* if provided, otherwise a new timestamped
     folder under data/report/ is created.
-    Returns the path of the written file.
+    Returns a list of written file paths.
     """
     if out_dir is None:
         folder_name = datetime.now().strftime("%Y-%m-%d %H-%M")
@@ -106,14 +113,16 @@ def write_report(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     safe_name = "".join(c if c.isalnum() or c in "-_ " else "_" for c in supplier_name)
-    filename = out_dir / f"Report_{safe_name}_FY{fy}.xlsx"
-
-    wb = openpyxl.Workbook()
-    wb.remove(wb.active)  # remove default sheet
+    written: list[Path] = []
 
     for month in months:
-        ws = wb.create_sheet(title=month)
+        mm = _MONTH_NUM.get(month, month)
+        filename = out_dir / f"ValidationReport_{safe_name}_FY{fy}_{mm}.xlsx"
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = month
         _write_sheet(ws, month, records)
+        wb.save(filename)
+        written.append(filename)
 
-    wb.save(filename)
-    return filename
+    return written

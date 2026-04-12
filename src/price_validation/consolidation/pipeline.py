@@ -315,8 +315,8 @@ def _rebate_only(all_path: Path, out_dir: Path) -> Path:
 
 def _write_pricing_template(rebate_path: Path, fy_sheet: str) -> Path:
     """
-    Overwrite the InputDevice sheet in PRICING_TEMPLATE_DIR/Pricing_Template_InputDevices.xlsx.
-    Creates the file if it doesn't exist yet.
+    Write a fresh Pricing_Template_InputDevices.xlsx with a single sheet
+    named after the selected FY (e.g. 'FY25'). Overwrites any existing file.
     """
     PRICING_TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
     template_file = PRICING_TEMPLATE_DIR / "Pricing_Template_InputDevices.xlsx"
@@ -327,18 +327,9 @@ def _write_pricing_template(rebate_path: Path, fy_sheet: str) -> Path:
         raise ValueError(f"Sheet '{fy_sheet}' not found in rebate workbook")
     src_sheet = src_wb[fy_sheet]
 
-    if template_file.exists():
-        tmpl_wb = openpyxl.load_workbook(template_file)
-    else:
-        tmpl_wb = Workbook()
-        tmpl_wb.remove(tmpl_wb.active)
-
-    if "InputDevice" not in tmpl_wb.sheetnames:
-        dest_sheet = tmpl_wb.create_sheet("InputDevice")
-    else:
-        dest_sheet = tmpl_wb["InputDevice"]
-        if dest_sheet.max_row:
-            dest_sheet.delete_rows(1, dest_sheet.max_row)
+    out_wb = Workbook()
+    out_wb.remove(out_wb.active)
+    dest_sheet = out_wb.create_sheet(title=fy_sheet)
 
     for row in src_sheet.iter_rows(values_only=True):
         if all(c is None for c in row):
@@ -346,7 +337,7 @@ def _write_pricing_template(rebate_path: Path, fy_sheet: str) -> Path:
         dest_sheet.append(list(row))
 
     src_wb.close()
-    tmpl_wb.save(template_file)
+    out_wb.save(template_file)
     return template_file
 
 

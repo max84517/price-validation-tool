@@ -10,7 +10,7 @@ Built with Python, Tkinter dark-mode UI, pandas, and openpyxl.
 
 Download the latest release from the [Releases page](https://github.com/max84517/price-validation-tool/releases/latest).
 
-1. Download `PriceValidation-v1.1.6.zip`
+1. Download `PriceValidation-v1.2.0.zip`
 2. Extract the zip to any folder (keep all files together)
 3. Run **`PriceValidation.exe`**
 
@@ -142,8 +142,8 @@ Click **Validate** to open the configuration dialog:
 
 | Field | Description |
 |---|---|
-| **Fiscal Year** | Exactly 2 digits (e.g. `25`). Used to find the `FY25` sheet in the shipment file. |
-| **Months** | Select one or more months (Jan  Nov). |
+| **Fiscal Year** | Auto-detected from the Pricing Template sheet name (e.g. `FY25`). No manual input required. |
+| **Months** | Select one or more months (Jan – Nov). |
 | **Cross-check Index** | Select  2 fields to build a composite key used for matching rows between both files. Fields are joined with `-`, spaces removed, uppercased. |
 | **Allow: Master Table has entry but Supplier Shipment doesn't** | Tick to suppress reporting of items that exist in the master table but are absent from the shipment. |
 
@@ -157,7 +157,9 @@ The tool then:
 
 ### 6. Report Format
 
-Each report workbook contains one sheet per selected month.
+Each report run produces one Excel file **per month per supplier** saved under `data/report/<timestamp>/`.
+
+Filename format: `ValidationReport_<Supplier>_FY<YY>_<MM>.xlsx` (e.g. `ValidationReport_Chicony_FY26_03.xlsx`)
 
 | Condition | Row colour | Comment |
 |---|---|---|
@@ -210,6 +212,11 @@ Columns: `HP/ODM Part#`, `Color`, `Product`, `Size`, `ODM & Site`, `GTK Supplier
 ---
 
 ## Changelog
+
+### v1.2.0
+- Build PT now saves the Pricing Template with a sheet named after the selected FY (e.g. `FY25`) instead of `InputDevice`. Each Build overwrites the entire file fresh.
+- Validate dialog now auto-detects the FY from the Pricing Template sheet name — no more manual FY input.
+- Report filename format changed to `ValidationReport_<Supplier>_FY<YY>_<MM>.xlsx` (one file per month per supplier, e.g. `ValidationReport_Chicony_FY26_03.xlsx`).
 
 ### v1.1.6
 - Fixed: When validating multiple suppliers, all reports are now saved into the same timestamped folder even if the run spans across a minute boundary.

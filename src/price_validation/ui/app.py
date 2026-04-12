@@ -141,13 +141,14 @@ class AddSupplierDialog(tk.Toplevel):
 class ValidateConfigDialog(tk.Toplevel):
     """Ask FY, months, and cross-check index keys before running validation."""
 
-    def __init__(self, parent: tk.Tk, on_start):
+    def __init__(self, parent: tk.Tk, on_start, detected_fy: str | None = None):
         super().__init__(parent)
         self.title("Validate — Configuration")
         self.configure(bg=BG)
         self.resizable(False, False)
         self.grab_set()
         self._on_start = on_start
+        self._detected_fy = detected_fy
         self._build()
         self._center(parent)
 
@@ -161,13 +162,18 @@ class ValidateConfigDialog(tk.Toplevel):
     def _build(self):
         pad = {"padx": 16, "pady": 6}
 
-        # FY input
-        tk.Label(self, text="Fiscal Year (e.g. 25):", bg=BG, fg=FG,
+        # FY display (read from PT, not manually entered)
+        tk.Label(self, text="Fiscal Year:", bg=BG, fg=FG,
                  font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="w", **pad)
-        self._fy_var = tk.StringVar()
-        fy_ent = tk.Entry(self, textvariable=self._fy_var, width=8)
-        _style_entry(fy_ent)
-        fy_ent.grid(row=0, column=1, sticky="w", **pad)
+        if self._detected_fy:
+            fy_display = f"FY{self._detected_fy} (from Pricing Template)"
+            fy_color = FG
+        else:
+            fy_display = "Unknown — PT sheet not named FY##"
+            fy_color = "#ffd166"
+        self._fy_var = tk.StringVar(value=self._detected_fy or "")
+        tk.Label(self, text=fy_display, bg=BG, fg=fy_color,
+                 font=("Segoe UI", 9)).grid(row=0, column=1, sticky="w", **pad)
 
         # Month checkboxes
         tk.Label(self, text="Months to validate:", bg=BG, fg=FG,
@@ -231,11 +237,11 @@ class ValidateConfigDialog(tk.Toplevel):
 
     def _start(self):
         fy = self._fy_var.get().strip()
-        # Validate FY: exactly 2 digits
-        if not (len(fy) == 2 and fy.isdigit()):
+        if not fy:
             messagebox.showerror(
-                "Invalid FY",
-                "Please enter exactly 2 digits for Fiscal Year (e.g. 25).",
+                "No Fiscal Year",
+                "Fiscal Year could not be detected from the Pricing Template.\n"
+                "Please rebuild the PT using Build PT.",
                 parent=self,
             )
             return
@@ -758,8 +764,9 @@ class App(tk.Tk):
             messagebox.showinfo("No Selection", "No suppliers selected.")
             return
 
-        pt_path = str(PRICING_TEMPLATE_DIR / "Pricing_Template_InputDevices.xlsx")
-        if not (PRICING_TEMPLATE_DIR / "Pricing_Template_InputDevices.xlsx").exists():
+        pt_file = PRICING_TEMPLATE_DIR / "Pricing_Template_InputDevices.xlsx"
+        pt_path = str(pt_file)
+        if not pt_file.exists():
             messagebox.showerror(
                 "No Pricing Template",
                 "Pricing_Template_InputDevices.xlsx not found.\n"
@@ -767,10 +774,23 @@ class App(tk.Tk):
             )
             return
 
+        # Detect FY from the PT sheet name (e.g. "FY25" → "25")
+        try:
+            import openpyxl as _opx
+            _wb = _opx.load_workbook(pt_file, read_only=True, data_only=True)
+            _sheet = _wb.sheetnames[0]
+            _wb.close()
+            # Accept "FY25" → "25", or legacy "InputDevice" → unknown
+            import re as _re
+            _m = _re.match(r"^FY(\d{2})$", _sheet.strip())
+            detected_fy = _m.group(1) if _m else None
+        except Exception:
+            detected_fy = None
+
         def start_cb(fy: str, months: list[str], index_keys: list[str], allow_pt_only: bool):
             self._run_validation(selected, pt_path, fy, months, index_keys, allow_pt_only)
 
-        ValidateConfigDialog(self, on_start=start_cb)
+        ValidateConfigDialog(self, on_start=start_cb, detected_fy=detected_fy)
 
     def _run_validation(
         self,
@@ -825,10 +845,10 @@ class App(tk.Tk):
                     self.after(0, lambda n=supplier_name, c=len(mismatches): self._log(
                         f"[{n}] Compare done. {c} mismatch(es) found.",
                         level="WARN" if c else "SUCCESS"))
-                    out = write_report(supplier_name, fy, months, mismatches, report_dir)
-                    reports.append(str(out))
-                    self.after(0, lambda n=supplier_name, o=out: self._log(
-                        f"[{n}] Report saved: {o}", level="SUCCESS"))
+                    out_files = write_report(supplier_name, fy, months, mismatches, report_dir)
+                    reports.extend(str(f) for f in out_files)
+                    self.after(0, lambda n=supplier_name, c=len(out_files): self._log(
+                        f"[{n}] {c} report file(s) saved.", level="SUCCESS"))
                 except Exception as exc:
                     err_msg = f"{supplier_name}: {exc}"
                     errors.append(err_msg)

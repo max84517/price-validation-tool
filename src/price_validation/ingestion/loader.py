@@ -99,11 +99,22 @@ def load_pricing_template(
     supplier_name: str = "",
 ) -> pd.DataFrame:
     """
-    Read the 'InputDevice' sheet from the pricing template.
+    Read the pricing template. The file contains a single sheet named after
+    the FY (e.g. 'FY25'). Falls back to 'InputDevice' for backwards compatibility.
     Returns a wide DataFrame with feature columns + Rebate columns for selected months,
     plus an '__index__' column.
     """
-    sheet_name = "InputDevice"
+    import openpyxl as _opx
+    _wb = _opx.load_workbook(file_path, read_only=True, data_only=True)
+    _sheets = _wb.sheetnames
+    _wb.close()
+    # Prefer FY-named sheet, fall back to InputDevice
+    if f"FY{fy}" in _sheets:
+        sheet_name = f"FY{fy}"
+    elif "InputDevice" in _sheets:
+        sheet_name = "InputDevice"
+    else:
+        sheet_name = _sheets[0]
     df = pd.read_excel(file_path, sheet_name=sheet_name, header=0, dtype=str)
     df = _strip_cols(df)
 
