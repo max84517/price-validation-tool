@@ -343,6 +343,40 @@ def _write_pricing_template(rebate_path: Path, fy_sheet: str) -> Path:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+def check_latest_files(source_paths: dict[str, str]) -> list[dict]:
+    """
+    For each segment × supplier folder, find the newest .xlsx file and return
+    its metadata without copying or modifying anything.
+
+    Returns a list of dicts, one per supplier folder found:
+        {
+            "segment":   str,          # e.g. "bNB"
+            "supplier":  str,          # folder name suffix, e.g. "bNB_CHICONY"
+            "filename":  str | None,   # latest .xlsx filename, or None if empty
+            "modified":  datetime | None,
+        }
+    """
+    from datetime import datetime
+    results: list[dict] = []
+
+    for seg_label, src_key, master_sub, prefix in _SEGMENT_DEFS:
+        master_dir = Path(source_paths[src_key]) / master_sub
+        if not master_dir.exists():
+            continue
+        matched = sorted(d for d in master_dir.iterdir() if d.is_dir() and d.name.startswith(prefix))
+        for supplier_dir in matched:
+            short = supplier_dir.name.replace("Master price table_", "", 1)
+            latest = _newest_xlsx(supplier_dir)
+            results.append({
+                "segment":  seg_label,
+                "supplier": short,
+                "filename": latest.name if latest else None,
+                "modified": datetime.fromtimestamp(latest.stat().st_mtime) if latest else None,
+            })
+
+    return results
+
+
 def get_available_fy_sheets(source_paths: dict[str, str], log: Callable[[str, str], None]) -> list[str]:
     """
     Run ingest + segment consolidation + consolidate_all in a temp dir

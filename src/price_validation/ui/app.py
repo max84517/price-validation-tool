@@ -348,6 +348,11 @@ class App(tk.Tk):
         _style_button(self._build_pt_btn, accent=True)
         self._build_pt_btn.pack(side=tk.RIGHT, padx=4)
 
+        self._check_files_btn = tk.Button(build_hdr, text="Check Files",
+                                          command=self._on_check_files)
+        _style_button(self._check_files_btn)
+        self._check_files_btn.pack(side=tk.RIGHT, padx=(0, 0))
+
         build_body = tk.Frame(build_outer, bg=BG2)
         build_body.pack(fill=tk.X, padx=4, pady=(0, 4))
 
@@ -463,6 +468,117 @@ class App(tk.Tk):
     # ---------------------------------------------------------------------- #
     # Build Pricing Template
     # ---------------------------------------------------------------------- #
+    def _on_check_files(self):
+        nb_kb      = self._nb_kb_var.get().strip()
+        dt_kb      = self._dt_kb_var.get().strip()
+        peripheral = self._peripheral_var.get().strip()
+
+        missing = [lbl for lbl, val in [("NB KB", nb_kb), ("DT KB", dt_kb), ("Peripheral", peripheral)] if not val]
+        if missing:
+            messagebox.showerror("Missing Folders", f"Please set folders for: {', '.join(missing)}")
+            return
+
+        source_paths = {"nb_kb": nb_kb, "dt_kb": dt_kb, "peripheral": peripheral}
+        self._check_files_btn.configure(state=tk.DISABLED)
+        self._set_status("Scanning source folders…")
+
+        def _scan():
+            from price_validation.consolidation.pipeline import check_latest_files
+            try:
+                results = check_latest_files(source_paths)
+            except Exception as exc:
+                self.after(0, lambda e=exc: (
+                    self._log(f"Check Files error: {e}", "ERROR"),
+                    self._check_files_btn.configure(state=tk.NORMAL),
+                    self._set_status("Check Files failed."),
+                ))
+                return
+            self.after(0, lambda r=results: (
+                self._show_check_files_dialog(r),
+                self._check_files_btn.configure(state=tk.NORMAL),
+                self._set_status("Ready."),
+            ))
+
+        threading.Thread(target=_scan, daemon=True).start()
+
+    def _show_check_files_dialog(self, results: list[dict]):
+        """Display a scrollable table of segment / supplier / filename / modified date."""
+        dlg = tk.Toplevel(self)
+        dlg.title("Latest Source Files")
+        dlg.configure(bg=BG)
+        dlg.resizable(True, True)
+
+        # ── header row ──
+        header_frame = tk.Frame(dlg, bg=BG2)
+        header_frame.pack(fill=tk.X, padx=8, pady=(8, 0))
+        for col_i, (label, width) in enumerate([
+            ("Segment", 8), ("Supplier", 18), ("Latest File", 36), ("Modified", 18),
+        ]):
+            tk.Label(header_frame, text=label, bg=BG2, fg=FG,
+                     font=("Segoe UI", 9, "bold"), width=width, anchor="w").grid(
+                row=0, column=col_i, padx=4, pady=2, sticky="w")
+
+        # ── scrollable body ──
+        body_outer = tk.Frame(dlg, bg=BG)
+        body_outer.pack(fill=tk.BOTH, expand=True, padx=8, pady=(2, 8))
+
+        canvas = tk.Canvas(body_outer, bg=BG, highlightthickness=0)
+        scrollbar = tk.Scrollbar(body_outer, orient=tk.VERTICAL, command=canvas.yview)
+        inner = tk.Frame(canvas, bg=BG)
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        from datetime import datetime as _dt
+        _now = _dt.now()
+
+        for row_i, rec in enumerate(results):
+            row_bg = BG if row_i % 2 == 0 else BG2
+            filename = rec["filename"] or "— no file found —"
+            modified = rec["modified"].strftime("%Y-%m-%d  %H:%M") if rec["modified"] else "—"
+            fg_file = FG if rec["filename"] else "#ff6b6b"
+
+            # Check whether the file is from this month
+            stale = (
+                rec["modified"] is None
+                or rec["modified"].year != _now.year
+                or rec["modified"].month != _now.month
+            )
+
+            for col_i, (text, width, fg_col) in enumerate([
+                (rec["segment"],  8,  FG_DIM),
+                (rec["supplier"], 18, FG),
+                (filename,        36, fg_file),
+                (modified,        18, FG_DIM),
+            ]):
+                tk.Label(inner, text=text, bg=row_bg, fg=fg_col,
+                         font=("Segoe UI", 9), width=width, anchor="w").grid(
+                    row=row_i, column=col_i, padx=4, pady=1, sticky="w")
+
+            # Warning icon after the Modified column when file is not from this month
+            if stale:
+                warn_lbl = tk.Label(inner, text="⚠", bg=row_bg, fg="#ffd166",
+                                    font=("Segoe UI", 9))
+                warn_lbl.grid(row=row_i, column=4, padx=(0, 4), pady=1, sticky="w")
+                warn_lbl.bind("<Enter>", lambda e, w=warn_lbl: w.configure(
+                    text="⚠  Not updated this month"))
+                warn_lbl.bind("<Leave>", lambda e, w=warn_lbl: w.configure(text="⚠"))
+
+        # ── close button ──
+        close_btn = tk.Button(dlg, text="Close", command=dlg.destroy)
+        _style_button(close_btn)
+        close_btn.pack(pady=(0, 8))
+
+        # size & center
+        dlg.update_idletasks()
+        w, h = max(dlg.winfo_reqwidth(), 680), min(dlg.winfo_reqheight() + 40, 600)
+        x = self.winfo_rootx() + (self.winfo_width() - w) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - h) // 2
+        dlg.geometry(f"{w}x{h}+{x}+{y}")
+        dlg.grab_set()
+
     def _on_build_pt(self):
         nb_kb      = self._nb_kb_var.get().strip()
         dt_kb      = self._dt_kb_var.get().strip()
