@@ -331,9 +331,29 @@ def _write_pricing_template(rebate_path: Path, fy_sheet: str) -> Path:
     out_wb.remove(out_wb.active)
     dest_sheet = out_wb.create_sheet(title=fy_sheet)
 
-    for row in src_sheet.iter_rows(values_only=True):
+    # Locate the Platforms/Project column index from the header row
+    header: tuple = ()
+    platforms_col_idx: int = -1
+    rows_iter = src_sheet.iter_rows(values_only=True)
+    for row in rows_iter:
+        header = row
+        # Normalise header cell: collapse whitespace / newlines
+        platforms_col_idx = next(
+            (i for i, h in enumerate(header)
+             if isinstance(h, str) and re.sub(r'\s+', ' ', h).strip().lower() == "platforms/project"),
+            -1,
+        )
+        dest_sheet.append(list(header))
+        break  # only process header row here
+
+    for row in rows_iter:
         if all(c is None for c in row):
             continue
+        # Skip rows where Platforms/Project is blank
+        if platforms_col_idx >= 0:
+            val = row[platforms_col_idx] if platforms_col_idx < len(row) else None
+            if val is None or str(val).strip() == "":
+                continue
         dest_sheet.append(list(row))
 
     src_wb.close()
