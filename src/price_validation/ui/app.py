@@ -649,8 +649,26 @@ class App(tk.Tk):
 
         def _confirm():
             fy = fy_var.get()
-            dialog.destroy()
-            self._run_build_pt(source_paths, fy)
+            ok_btn.configure(state=tk.DISABLED)
+            cancel_btn.configure(state=tk.DISABLED)
+
+            def _do_check():
+                from price_validation.consolidation.pipeline import check_missing_fy_sheets
+                try:
+                    missing = check_missing_fy_sheets(source_paths, fy)
+                except Exception:
+                    missing = []
+
+                def _after():
+                    dialog.destroy()
+                    if not missing:
+                        self._run_build_pt(source_paths, fy)
+                    else:
+                        self._show_missing_fy_warning(missing, fy, source_paths)
+
+                self.after(0, _after)
+
+            threading.Thread(target=_do_check, daemon=True).start()
 
         ok_btn = tk.Button(btn_frame, text="Build", command=_confirm)
         _style_button(ok_btn, accent=True)
@@ -660,6 +678,77 @@ class App(tk.Tk):
             self._build_pt_btn.configure(state=tk.NORMAL),
             self._set_status("Build PT cancelled."),
         ))
+        _style_button(cancel_btn)
+        cancel_btn.pack(side=tk.LEFT, padx=6)
+
+    def _show_missing_fy_warning(self, missing: list[dict], fy_sheet: str, source_paths: dict):
+        """Warning dialog shown when some suppliers are missing the selected FY sheet."""
+        warn = tk.Toplevel(self)
+        warn.title("Missing FY Sheets — Warning")
+        warn.configure(bg=BG)
+        warn.resizable(False, False)
+        warn.grab_set()
+
+        self.update_idletasks()
+        w, h = 480, 320
+        x = self.winfo_rootx() + (self.winfo_width() - w) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - h) // 2
+        warn.geometry(f"{w}x{h}+{x}+{y}")
+
+        header = tk.Label(
+            warn,
+            text=f"⚠  Some suppliers are missing {fy_sheet} sheets.",
+            bg=BG, fg="#f0c040", font=("Segoe UI", 10, "bold"),
+        )
+        header.pack(padx=16, pady=(14, 4))
+
+        sub = tk.Label(
+            warn,
+            text="The build will still run using available data.\nContinue or cancel?",
+            bg=BG, fg=FG_DIM, font=("Segoe UI", 9),
+            justify=tk.CENTER,
+        )
+        sub.pack(padx=16, pady=(0, 8))
+
+        # Scrollable list
+        frame = tk.Frame(warn, bg=BG2, relief=tk.FLAT, bd=1)
+        frame.pack(padx=16, fill=tk.BOTH, expand=True)
+
+        scrollbar = tk.Scrollbar(frame, orient=tk.VERTICAL)
+        txt = tk.Text(
+            frame,
+            bg=BG2, fg=FG, font=("Segoe UI", 9),
+            relief=tk.FLAT, state=tk.NORMAL,
+            yscrollcommand=scrollbar.set,
+            wrap=tk.WORD, height=7,
+        )
+        scrollbar.configure(command=txt.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+        for entry in missing:
+            sheets = ", ".join(entry["missing"])
+            txt.insert(tk.END, f"{entry['segment']} / {entry['supplier']}\n")
+            txt.insert(tk.END, f"    Missing: {sheets}\n")
+        txt.configure(state=tk.DISABLED)
+
+        btn_frame = tk.Frame(warn, bg=BG)
+        btn_frame.pack(pady=(8, 14))
+
+        def _continue():
+            warn.destroy()
+            self._run_build_pt(source_paths, fy_sheet)
+
+        def _cancel():
+            warn.destroy()
+            self._build_pt_btn.configure(state=tk.NORMAL)
+            self._set_status("Build PT cancelled.")
+
+        continue_btn = tk.Button(btn_frame, text="Continue Anyway", command=_continue)
+        _style_button(continue_btn, accent=True)
+        continue_btn.pack(side=tk.LEFT, padx=6)
+
+        cancel_btn = tk.Button(btn_frame, text="Cancel", command=_cancel)
         _style_button(cancel_btn)
         cancel_btn.pack(side=tk.LEFT, padx=6)
 

@@ -10,7 +10,7 @@ Built with Python, Tkinter dark-mode UI, pandas, and openpyxl.
 
 Download the latest release from the [Releases page](https://github.com/max84517/price-validation-tool/releases/latest).
 
-1. Download `PriceValidation-v1.2.1.zip`
+1. Download `PriceValidation-v1.3.0.zip`
 2. Extract the zip to any folder (keep all files together)
 3. Run **`PriceValidation.exe`**
 
@@ -107,7 +107,7 @@ Set the three source folders in the **Build Pricing Template** panel:
 
 | Field | Source folder contains |
 |---|---|
-| **NB KB** | `Master price table_bNB_*/` and `Master price table_cNB_*/` sub-folders |
+| **NB KB** | `Master price table_NB/Master price table_NB_*/` sub-folders; each supplier Excel has sheets named `FY25 bNB` / `FY25 cNB` (bNB and cNB combined in one file per supplier) |
 | **DT KB** | `Master price table_DT_*/` sub-folders |
 | **Peripheral** | `Master price table_Peripheral_*/` sub-folders |
 
@@ -117,7 +117,8 @@ Click **Build PT**. The tool will:
 1. Copy the newest `.xlsx` from each supplier sub-folder and fix the `GTK Suppliers` column from the filename.
 2. Consolidate by segment, then merge all segments.
 3. Remove `HP Cost` / `ODM Cost` columns.
-4. Ask which FY sheet to write, then overwrite the `InputDevice` sheet in `data/pricing_template/Pricing_Template_InputDevices.xlsx` (created automatically if it doesn't exist).
+4. Ask which FY sheet to write. If any supplier is missing that FY sheet, a warning dialog lists the affected segment / supplier combinations — you can continue anyway or cancel.
+5. Overwrite the `InputDevice` sheet in `data/pricing_template/Pricing_Template_InputDevices.xlsx` (created automatically if it doesn't exist).
 
 Folder settings are saved to `config.json` and reloaded on next launch.
 

@@ -41,10 +41,16 @@ from price_validation.config.paths import PRICING_TEMPLATE_DIR, MASTER_PRICE_SOU
 _FY_PATTERN = re.compile(r"^FY\d{2}$")
 _REMOVE_PATTERNS = ("HP Cost", "ODM Cost")
 
-# (segment_label, sub_path_under_source_root, folder_prefix)
+# Matches new combined NB sheet names: "FY25 cNB", "FY25 bNB", "fy26CNB", "FY25 c NB"
+# Captures (fy_year_digits, 'c'|'b'). Must be the entire string (no extra text).
+_NB_SHEET_RE = re.compile(r"^FY(\d{2})\s*([cb])\s*NB$", re.IGNORECASE)
+
+# NB combined folder constants
+_NB_MASTER_SUB = "Master price table_NB"
+_NB_PREFIX     = "Master price table_NB_"
+
+# Non-NB segments only (bNB and cNB are now handled by _ingest_nb)
 _SEGMENT_DEFS: list[tuple[str, str, str, str]] = [
-    ("bNB",         "nb_kb",        "Master price table_bNB",        "Master price table_bNB_"),
-    ("cNB",         "nb_kb",        "Master price table_cNB",        "Master price table_cNB_"),
     ("DT",          "dt_kb",        "Master price table_DT",         "Master price table_DT_"),
     ("Peripheral",  "peripheral",   "Master price table_Peripheral", "Master price table_Peripheral_"),
 ]
@@ -180,6 +186,139 @@ def _ingest_to_dir(
             log(f"[{seg_label}] Ingested: {supplier_dir.name}/{latest.name}", "INFO")
 
         result[seg_label] = copied
+
+    return result
+
+
+# ── Stage 1b: Ingest NB combined folder ─────────────────────────────────────
+
+def _ingest_nb(
+    source_paths: dict[str, str],
+    raw_dir: Path,
+    log: Callable[[str, str], None],
+) -> dict[str, list[Path]]:
+    """
+    Handle the new combined NB source structure:
+      <nb_kb>/Master price table_NB/Master price table_NB_<Supplier>/*.xlsx
+
+    Each supplier Excel contains sheets named 'FY25 cNB', 'FY25 bNB', etc.
+    This function:
+      1. Scans all supplier Excels to find FY years that have BOTH cNB and bNB
+         sheets present (across all supplier files combined).
+      2. For each supplier, writes two output Excels:
+         - raw_dir/bNB/<supplier>.xlsx  — only bNB sheets, renamed to FY{YY}
+         - raw_dir/cNB/<supplier>.xlsx  — only cNB sheets, renamed to FY{YY}
+      3. Applies _fix_gtk_suppliers and copies to master price source.
+    """
+    import shutil
+
+    nb_kb_path = Path(source_paths.get("nb_kb", ""))
+    master_dir = nb_kb_path / _NB_MASTER_SUB
+    if not master_dir.exists():
+        log(f"[NB] Folder not found: {master_dir}", "WARN")
+        return {"bNB": [], "cNB": []}
+
+    supplier_dirs = sorted(
+        d for d in master_dir.iterdir()
+        if d.is_dir() and d.name.startswith(_NB_PREFIX)
+    )
+    if not supplier_dirs:
+        log(f"[NB] No sub-folders matching '{_NB_PREFIX}*' in {master_dir}", "WARN")
+        return {"bNB": [], "cNB": []}
+
+    # ── Pass 1: collect valid FY years (must have both cNB and bNB across all suppliers) ──
+    cnb_fys: set[str] = set()
+    bnb_fys: set[str] = set()
+    for supplier_dir in supplier_dirs:
+        latest = _newest_xlsx(supplier_dir)
+        if latest is None:
+            continue
+        wb = openpyxl.load_workbook(latest, read_only=True, data_only=True)
+        for sheet_name in wb.sheetnames:
+            m = _NB_SHEET_RE.match(sheet_name.strip())
+            if m:
+                fy = f"FY{m.group(1)}"
+                if m.group(2).lower() == "c":
+                    cnb_fys.add(fy)
+                else:
+                    bnb_fys.add(fy)
+        wb.close()
+
+    valid_fys = cnb_fys & bnb_fys
+    if not valid_fys:
+        log("[NB] No FY year has both cNB and bNB sheets — skipping NB ingest", "WARN")
+        return {"bNB": [], "cNB": []}
+    log(f"[NB] Valid FY years (cNB+bNB both present): {sorted(valid_fys)}", "INFO")
+
+    # ── Pass 2: split each supplier Excel into bNB and cNB files ──
+    bnb_raw = raw_dir / "bNB"
+    cnb_raw = raw_dir / "cNB"
+    bnb_raw.mkdir(parents=True, exist_ok=True)
+    cnb_raw.mkdir(parents=True, exist_ok=True)
+
+    result: dict[str, list[Path]] = {"bNB": [], "cNB": []}
+
+    for supplier_dir in supplier_dirs:
+        latest = _newest_xlsx(supplier_dir)
+        if latest is None:
+            log(f"[NB] No .xlsx in {supplier_dir.name}", "WARN")
+            continue
+
+        short = supplier_dir.name.replace("Master price table_", "", 1)  # e.g. "NB_CHICONY"
+        supplier_name = short.split("_", 1)[1] if "_" in short else short
+
+        src_wb = openpyxl.load_workbook(latest, read_only=True, data_only=True)
+        # raw workbooks: normalised sheet names (FY25) — used by pipeline
+        bnb_out = Workbook(); bnb_out.remove(bnb_out.active)
+        cnb_out = Workbook(); cnb_out.remove(cnb_out.active)
+        # master workbooks: original sheet names (FY25 bNB) — saved to master price source
+        bnb_master = Workbook(); bnb_master.remove(bnb_master.active)
+        cnb_master = Workbook(); cnb_master.remove(cnb_master.active)
+        bnb_wrote = False
+        cnb_wrote = False
+
+        for sheet_name in src_wb.sheetnames:
+            m = _NB_SHEET_RE.match(sheet_name.strip())
+            if not m:
+                continue
+            fy = f"FY{m.group(1)}"
+            if fy not in valid_fys:
+                continue
+            nb_type = m.group(2).lower()  # 'b' or 'c'
+            target_raw    = bnb_out    if nb_type == "b" else cnb_out
+            target_master = bnb_master if nb_type == "b" else cnb_master
+            src_sheet = src_wb[sheet_name]
+            rows = [list(r) for r in src_sheet.iter_rows(values_only=True)]
+            # raw: normalised name for downstream processing
+            raw_sheet = target_raw.create_sheet(title=fy)
+            for row in rows:
+                raw_sheet.append(row)
+            # master: keep original sheet name
+            master_sheet = target_master.create_sheet(title=sheet_name.strip())
+            for row in rows:
+                master_sheet.append(row)
+            if nb_type == "b":
+                bnb_wrote = True
+            else:
+                cnb_wrote = True
+
+        src_wb.close()
+
+        for seg_label, out_wb, master_wb, wrote, seg_raw in [
+            ("bNB", bnb_out, bnb_master, bnb_wrote, bnb_raw),
+            ("cNB", cnb_out, cnb_master, cnb_wrote, cnb_raw),
+        ]:
+            if not wrote:
+                log(f"[{seg_label}] No valid sheets for {supplier_dir.name} — skipped", "WARN")
+                continue
+            dest = seg_raw / f"{short}.xlsx"
+            out_wb.save(dest)
+            _fix_gtk_suppliers(dest, supplier_name, log, seg_label)
+            master_src_seg_dir = MASTER_PRICE_SOURCE_DIR / seg_label
+            master_dest = master_src_seg_dir / latest.name
+            master_wb.save(master_dest)
+            result[seg_label].append(dest)
+            log(f"[{seg_label}] Ingested: {supplier_dir.name}/{latest.name}", "INFO")
 
     return result
 
@@ -331,9 +470,29 @@ def _write_pricing_template(rebate_path: Path, fy_sheet: str) -> Path:
     out_wb.remove(out_wb.active)
     dest_sheet = out_wb.create_sheet(title=fy_sheet)
 
-    for row in src_sheet.iter_rows(values_only=True):
+    # Locate the Platforms/Project column index from the header row
+    header: tuple = ()
+    platforms_col_idx: int = -1
+    rows_iter = src_sheet.iter_rows(values_only=True)
+    for row in rows_iter:
+        header = row
+        # Normalise header cell: collapse whitespace / newlines
+        platforms_col_idx = next(
+            (i for i, h in enumerate(header)
+             if isinstance(h, str) and re.sub(r'\s+', ' ', h).strip().lower() == "platforms/project"),
+            -1,
+        )
+        dest_sheet.append(list(header))
+        break  # only process header row here
+
+    for row in rows_iter:
         if all(c is None for c in row):
             continue
+        # Skip rows where Platforms/Project is blank
+        if platforms_col_idx >= 0:
+            val = row[platforms_col_idx] if platforms_col_idx < len(row) else None
+            if val is None or str(val).strip() == "":
+                continue
         dest_sheet.append(list(row))
 
     src_wb.close()
@@ -350,8 +509,8 @@ def check_latest_files(source_paths: dict[str, str]) -> list[dict]:
 
     Returns a list of dicts, one per supplier folder found:
         {
-            "segment":   str,          # e.g. "bNB"
-            "supplier":  str,          # folder name suffix, e.g. "bNB_CHICONY"
+            "segment":   str,          # e.g. "NB", "DT", "Peripheral"
+            "supplier":  str,          # folder name suffix
             "filename":  str | None,   # latest .xlsx filename, or None if empty
             "modified":  datetime | None,
         }
@@ -359,6 +518,25 @@ def check_latest_files(source_paths: dict[str, str]) -> list[dict]:
     from datetime import datetime
     results: list[dict] = []
 
+    # ── NB combined folder ──
+    nb_kb_path = Path(source_paths.get("nb_kb", ""))
+    nb_master_dir = nb_kb_path / _NB_MASTER_SUB
+    if nb_master_dir.exists():
+        matched_nb = sorted(
+            d for d in nb_master_dir.iterdir()
+            if d.is_dir() and d.name.startswith(_NB_PREFIX)
+        )
+        for supplier_dir in matched_nb:
+            short = supplier_dir.name.replace("Master price table_", "", 1)
+            latest = _newest_xlsx(supplier_dir)
+            results.append({
+                "segment":  "NB",
+                "supplier": short,
+                "filename": latest.name if latest else None,
+                "modified": datetime.fromtimestamp(latest.stat().st_mtime) if latest else None,
+            })
+
+    # ── Non-NB segments (DT, Peripheral) ──
     for seg_label, src_key, master_sub, prefix in _SEGMENT_DEFS:
         master_dir = Path(source_paths[src_key]) / master_sub
         if not master_dir.exists():
@@ -373,6 +551,78 @@ def check_latest_files(source_paths: dict[str, str]) -> list[dict]:
                 "filename": latest.name if latest else None,
                 "modified": datetime.fromtimestamp(latest.stat().st_mtime) if latest else None,
             })
+
+    return results
+
+
+def check_missing_fy_sheets(source_paths: dict[str, str], fy_sheet: str) -> list[dict]:
+    """
+    For the given FY sheet name (e.g. 'FY25'), inspect each supplier folder
+    and return a list of dicts for suppliers that are missing required sheets.
+
+    Each dict: {"segment": str, "supplier": str, "missing": list[str]}
+
+    For NB suppliers: looks for 'FY25 bNB' and 'FY25 cNB' sheets.
+    For DT / Peripheral: looks for 'FY25' sheet directly.
+    """
+    results: list[dict] = []
+
+    if not _FY_PATTERN.match(fy_sheet.strip()):
+        return []
+    year_digits = fy_sheet.strip()[2:]  # "FY25" -> "25"
+
+    # ── NB ──
+    nb_kb_path = Path(source_paths.get("nb_kb", ""))
+    nb_master_dir = nb_kb_path / _NB_MASTER_SUB
+    if nb_master_dir.exists():
+        for supplier_dir in sorted(
+            d for d in nb_master_dir.iterdir()
+            if d.is_dir() and d.name.startswith(_NB_PREFIX)
+        ):
+            short = supplier_dir.name.replace("Master price table_", "", 1)
+            latest = _newest_xlsx(supplier_dir)
+            if latest is None:
+                results.append({"segment": "NB", "supplier": short,
+                                 "missing": [f"FY{year_digits} bNB", f"FY{year_digits} cNB"]})
+                continue
+            wb = openpyxl.load_workbook(latest, read_only=True, data_only=True)
+            stripped = {s.strip() for s in wb.sheetnames}
+            wb.close()
+            found_b = any(
+                (m := _NB_SHEET_RE.match(s)) and m.group(1) == year_digits and m.group(2).lower() == "b"
+                for s in stripped
+            )
+            found_c = any(
+                (m := _NB_SHEET_RE.match(s)) and m.group(1) == year_digits and m.group(2).lower() == "c"
+                for s in stripped
+            )
+            missing = []
+            if not found_b:
+                missing.append(f"FY{year_digits} bNB")
+            if not found_c:
+                missing.append(f"FY{year_digits} cNB")
+            if missing:
+                results.append({"segment": "NB", "supplier": short, "missing": missing})
+
+    # ── DT / Peripheral ──
+    for seg_label, src_key, master_sub, prefix in _SEGMENT_DEFS:
+        master_dir = Path(source_paths[src_key]) / master_sub
+        if not master_dir.exists():
+            continue
+        for supplier_dir in sorted(
+            d for d in master_dir.iterdir()
+            if d.is_dir() and d.name.startswith(prefix)
+        ):
+            short = supplier_dir.name.replace("Master price table_", "", 1)
+            latest = _newest_xlsx(supplier_dir)
+            if latest is None:
+                results.append({"segment": seg_label, "supplier": short, "missing": [fy_sheet]})
+                continue
+            wb = openpyxl.load_workbook(latest, read_only=True, data_only=True)
+            sheet_names = {s.strip() for s in wb.sheetnames}
+            wb.close()
+            if fy_sheet not in sheet_names:
+                results.append({"segment": seg_label, "supplier": short, "missing": [fy_sheet]})
 
     return results
 
@@ -450,10 +700,13 @@ def _run_stages(
         d.mkdir(parents=True, exist_ok=True)
 
     log("Ingesting raw files…", "INFO")
-    raw_map = _ingest_to_dir(source_paths, raw_dir, log)
+    _ingest_nb(source_paths, raw_dir, log)
+    _ingest_to_dir(source_paths, raw_dir, log)
 
+    # Consolidate all 4 segments (bNB and cNB come from _ingest_nb, DT/Peripheral from _ingest_to_dir)
+    _ALL_SEG_LABELS = ("bNB", "cNB") + tuple(s[0] for s in _SEGMENT_DEFS)
     segment_files: list[Path] = []
-    for seg_label, src_key, _, _ in _SEGMENT_DEFS:
+    for seg_label in _ALL_SEG_LABELS:
         seg_raw = raw_dir / seg_label
         if not seg_raw.exists() or not any(seg_raw.glob("*.xlsx")):
             log(f"[{seg_label}] Skipped (no raw files)", "WARN")
