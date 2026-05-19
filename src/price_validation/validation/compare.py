@@ -64,6 +64,7 @@ def compare(
     months: list[str],
     supplier_name: str,
     allow_pt_only: bool = False,
+    suppress_blank_warnings: bool = False,
 ) -> list[MismatchRecord]:
     """
     Compare df_pt (pricing template) and df_shp (supplier shipment) for the
@@ -170,4 +171,6 @@ def compare(
                 )
                 records.append(rec)
 
+    if suppress_blank_warnings:
+        records = [r for r in records if not r.is_blank_warning]
     return records

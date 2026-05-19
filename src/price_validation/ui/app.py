@@ -215,7 +215,7 @@ class ValidateConfigDialog(tk.Toplevel):
         allow_frame.grid(row=3, column=0, columnspan=2, sticky="w", padx=16, pady=(4, 0))
         tk.Label(allow_frame, text="Allow (skip reporting):", bg=BG, fg=FG,
                  font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT)
-        self._allow_pt_only_var = tk.BooleanVar(value=False)
+        self._allow_pt_only_var = tk.BooleanVar(value=True)
         cb_pt_only = tk.Checkbutton(
             allow_frame,
             text="Master Table has entry but Supplier Shipment doesn't",
@@ -225,9 +225,22 @@ class ValidateConfigDialog(tk.Toplevel):
         )
         cb_pt_only.pack(side=tk.LEFT, padx=(8, 0))
 
+        # Suppress blank-cell match warnings
+        warn_frame = tk.Frame(self, bg=BG)
+        warn_frame.grid(row=4, column=0, columnspan=2, sticky="w", padx=16, pady=(2, 0))
+        self._suppress_blank_var = tk.BooleanVar(value=True)
+        cb_blank = tk.Checkbutton(
+            warn_frame,
+            text="Suppress blank-cell match warnings",
+            variable=self._suppress_blank_var,
+            bg=BG, fg=FG, selectcolor=BG3, activebackground=BG, activeforeground=FG,
+            font=("Segoe UI", 9),
+        )
+        cb_blank.pack(side=tk.LEFT)
+
         # Buttons
         btn_frame = tk.Frame(self, bg=BG)
-        btn_frame.grid(row=4, column=0, columnspan=2, pady=(8, 14))
+        btn_frame.grid(row=5, column=0, columnspan=2, pady=(8, 14))
         start_btn = tk.Button(btn_frame, text="Start Validate", command=self._start)
         _style_button(start_btn, accent=True)
         start_btn.pack(side=tk.LEFT, padx=6)
@@ -259,8 +272,9 @@ class ValidateConfigDialog(tk.Toplevel):
             return
 
         allow_pt_only = self._allow_pt_only_var.get()
+        suppress_blank_warnings = self._suppress_blank_var.get()
         self.destroy()
-        self._on_start(fy, months, index_keys, allow_pt_only)
+        self._on_start(fy, months, index_keys, allow_pt_only, suppress_blank_warnings)
 
 
 # --------------------------------------------------------------------------- #
@@ -992,8 +1006,8 @@ class App(tk.Tk):
         except Exception:
             detected_fy = None
 
-        def start_cb(fy: str, months: list[str], index_keys: list[str], allow_pt_only: bool):
-            self._run_validation(selected, pt_path, fy, months, index_keys, allow_pt_only)
+        def start_cb(fy: str, months: list[str], index_keys: list[str], allow_pt_only: bool, suppress_blank: bool):
+            self._run_validation(selected, pt_path, fy, months, index_keys, allow_pt_only, suppress_blank)
 
         ValidateConfigDialog(self, on_start=start_cb, detected_fy=detected_fy)
 
@@ -1005,6 +1019,7 @@ class App(tk.Tk):
         months: list[str],
         index_keys: list[str],
         allow_pt_only: bool = False,
+        suppress_blank: bool = True,
     ):
         self._validate_btn.configure(state=tk.DISABLED)
         self._set_status("Validating…")
@@ -1014,10 +1029,11 @@ class App(tk.Tk):
             from datetime import datetime
             from price_validation.config.paths import SUPPLIER_SHIPMENTS_DIR, REPORT_DIR
             errors: list[str] = []
-            # Fix the report folder for this entire run so all suppliers land in the same folder
             report_dir = REPORT_DIR / datetime.now().strftime("%Y-%m-%d %H-%M")
             report_dir.mkdir(parents=True, exist_ok=True)
-            reports: list[str] = []
+
+            # pending: supplier_name → {df_pt, df_shp, mismatches}
+            pending: dict[str, dict] = {}
 
             for rd in selected_rows:
                 supplier_name = rd["name"]
@@ -1031,7 +1047,6 @@ class App(tk.Tk):
                 shp_path = SUPPLIER_SHIPMENTS_DIR / supplier_name / file_name
 
                 try:
-                    # Load PT filtered to this supplier
                     self.after(0, lambda n=supplier_name: self._log(
                         f"[{n}] Loading master table (filtered by supplier)…"))
                     df_pt = load_pricing_template(
@@ -1046,35 +1061,237 @@ class App(tk.Tk):
                     df_shp = load_supplier_shipment(shp_path, fy, months, index_keys)
                     self.after(0, lambda n=supplier_name, r=len(df_shp): self._log(
                         f"[{n}] Shipment loaded. {r} rows.", level="SUCCESS"))
-                    mismatches = compare(df_pt, df_shp, months, supplier_name, allow_pt_only)
+
+                    mismatches = compare(df_pt, df_shp, months, supplier_name, allow_pt_only, suppress_blank)
                     self.after(0, lambda n=supplier_name, c=len(mismatches): self._log(
                         f"[{n}] Compare done. {c} mismatch(es) found.",
                         level="WARN" if c else "SUCCESS"))
-                    out_files = write_report(supplier_name, fy, months, mismatches, report_dir)
-                    reports.extend(str(f) for f in out_files)
-                    self.after(0, lambda n=supplier_name, c=len(out_files): self._log(
-                        f"[{n}] {c} report file(s) saved.", level="SUCCESS"))
+
+                    pending[supplier_name] = {
+                        "df_pt": df_pt,
+                        "df_shp": df_shp,
+                        "mismatches": mismatches,
+                    }
                 except Exception as exc:
                     err_msg = f"{supplier_name}: {exc}"
                     errors.append(err_msg)
                     self.after(0, lambda m=err_msg: self._log(m, level="ERROR"))
 
+            total_mismatches = sum(len(d["mismatches"]) for d in pending.values())
+
+            def _after():
+                if errors and not pending:
+                    self._validate_btn.configure(state=tk.NORMAL)
+                    self._set_status(f"Validation failed. {len(errors)} error(s).")
+                    return
+                if total_mismatches > 0:
+                    self._show_revalidate_dialog(
+                        pending, fy, months, index_keys, allow_pt_only, suppress_blank,
+                        report_dir, pass_num=1
+                    )
+                else:
+                    self._write_final_reports(pending, fy, months, report_dir, errors=errors)
+
+            self.after(0, _after)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _show_revalidate_dialog(
+        self,
+        pending: dict,
+        fy: str,
+        months: list[str],
+        current_index_keys: list[str],
+        allow_pt_only: bool,
+        suppress_blank: bool,
+        report_dir,
+        pass_num: int,
+    ):
+        """Show the iterative re-validation dialog (runs on the main thread)."""
+        dlg = tk.Toplevel(self)
+        dlg.title(f"Re-validate Mismatches — Pass {pass_num}")
+        dlg.configure(bg=BG)
+        dlg.resizable(False, False)
+        dlg.grab_set()
+
+        # Centre over main window
+        self.update_idletasks()
+        px, py = self.winfo_rootx(), self.winfo_rooty()
+        pw, ph = self.winfo_width(), self.winfo_height()
+        dlg.update_idletasks()
+        w, h = dlg.winfo_width(), dlg.winfo_height()
+        dlg.geometry(f"+{px + (pw - w)//2}+{py + (ph - h)//2}")
+
+        pad = {"padx": 16, "pady": 6}
+
+        # Summary header
+        total = sum(len(d["mismatches"]) for d in pending.values())
+        tk.Label(
+            dlg,
+            text=f"Pass {pass_num} found {total} mismatch(es) across "
+                 f"{len(pending)} supplier(s).",
+            bg=BG, fg="#ffd166", font=("Segoe UI", 10, "bold"),
+        ).grid(row=0, column=0, columnspan=2, sticky="w", **pad)
+
+        # Per-supplier breakdown in a scrollable text box
+        txt_frame = tk.Frame(dlg, bg=BG2, relief=tk.SUNKEN, bd=1)
+        txt_frame.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=16, pady=(0, 6))
+        txt = tk.Text(
+            txt_frame, bg=BG2, fg=FG, font=("Consolas", 9),
+            height=min(len(pending) + 1, 10), width=60,
+            relief=tk.FLAT, state=tk.NORMAL,
+        )
+        sb = tk.Scrollbar(txt_frame, command=txt.yview, bg=BG3)
+        txt.configure(yscrollcommand=sb.set)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        for supplier_name, data in pending.items():
+            cnt = len(data["mismatches"])
+            txt.insert(tk.END, f"  {supplier_name}: {cnt} mismatch(es)\n")
+        txt.configure(state=tk.DISABLED)
+
+        # Index key selector (pre-checked with current keys)
+        tk.Label(dlg, text="Re-validate using index\n(select ≥ 2):",
+                 bg=BG, fg=FG, font=("Segoe UI", 9, "bold"), justify="left"
+                 ).grid(row=2, column=0, sticky="nw", **pad)
+        idx_frame = tk.Frame(dlg, bg=BG)
+        idx_frame.grid(row=2, column=1, sticky="w", **pad)
+        index_vars: dict[str, tk.BooleanVar] = {}
+        for i, key in enumerate(INDEX_OPTIONS):
+            var = tk.BooleanVar(value=(key in current_index_keys))
+            cb = tk.Checkbutton(
+                idx_frame, text=key, variable=var,
+                bg=BG, fg=FG, selectcolor=BG3, activebackground=BG,
+                activeforeground=FG, font=("Segoe UI", 9),
+            )
+            cb.grid(row=i, column=0, sticky="w")
+            index_vars[key] = var
+
+        # Buttons
+        btn_frame = tk.Frame(dlg, bg=BG)
+        btn_frame.grid(row=3, column=0, columnspan=2, pady=(8, 14))
+
+        def _on_revalidate():
+            new_keys = [k for k, v in index_vars.items() if v.get()]
+            if len(new_keys) < 2:
+                messagebox.showerror(
+                    "Index Keys", "Please select at least 2 index fields.", parent=dlg)
+                return
+            dlg.destroy()
+            threading.Thread(
+                target=self._do_revalidation,
+                args=(pending, fy, months, new_keys, allow_pt_only, suppress_blank,
+                      report_dir, pass_num + 1),
+                daemon=True,
+            ).start()
+
+        def _on_finish():
+            dlg.destroy()
+            self._write_final_reports(pending, fy, months, report_dir)
+
+        re_btn = tk.Button(btn_frame, text="Re-validate with new index", command=_on_revalidate)
+        _style_button(re_btn, accent=True)
+        re_btn.pack(side=tk.LEFT, padx=6)
+        fin_btn = tk.Button(btn_frame, text="Finish & Generate Report", command=_on_finish)
+        _style_button(fin_btn)
+        fin_btn.pack(side=tk.LEFT, padx=6)
+
+    def _do_revalidation(
+        self,
+        pending: dict,
+        fy: str,
+        months: list[str],
+        new_index_keys: list[str],
+        allow_pt_only: bool,
+        suppress_blank: bool,
+        report_dir,
+        pass_num: int,
+    ):
+        """Re-validate only the mismatch rows using a new index (background thread)."""
+        from price_validation.ingestion.loader import build_index, FEATURE_COLS_PT, FEATURE_COLS_SHP
+
+        updated_pending: dict[str, dict] = {}
+
+        for supplier_name, data in pending.items():
+            old_mismatches = data["mismatches"]
+            if not old_mismatches:
+                updated_pending[supplier_name] = data
+                continue
+
+            df_pt = data["df_pt"].copy()
+            df_shp = data["df_shp"].copy()
+
+            # Subset to rows that were previously flagged as mismatches
+            pt_indices = {m.index_value for m in old_mismatches if m.exists_in_pt}
+            shp_indices = {m.index_value for m in old_mismatches if m.exists_in_shp}
+
+            df_pt_sub = df_pt[df_pt["__index__"].isin(pt_indices)].copy()
+            df_shp_sub = df_shp[df_shp["__index__"].isin(shp_indices)].copy()
+
+            # Rebuild indices with the new key set
+            df_pt_sub["__index__"] = df_pt_sub.apply(
+                lambda r: build_index(r, new_index_keys, FEATURE_COLS_PT), axis=1)
+            df_shp_sub["__index__"] = df_shp_sub.apply(
+                lambda r: build_index(r, new_index_keys, FEATURE_COLS_SHP), axis=1)
+
+            new_mismatches = compare(
+                df_pt_sub, df_shp_sub, months, supplier_name, allow_pt_only, suppress_blank
+            )
+            self.after(0, lambda n=supplier_name, c=len(new_mismatches): self._log(
+                f"[{n}] Re-validate pass {pass_num - 1}→ {c} mismatch(es).",
+                level="WARN" if c else "SUCCESS"))
+
+            # Carry forward original full DFs so further passes still have full context
+            updated_pending[supplier_name] = {
+                "df_pt": data["df_pt"],
+                "df_shp": data["df_shp"],
+                "mismatches": new_mismatches,
+            }
+
+        total = sum(len(d["mismatches"]) for d in updated_pending.values())
+
+        def _after():
+            if total > 0:
+                self._show_revalidate_dialog(
+                    updated_pending, fy, months, new_index_keys, allow_pt_only, suppress_blank,
+                    report_dir, pass_num
+                )
+            else:
+                self._log("All mismatches resolved after re-validation!", level="SUCCESS")
+                self._write_final_reports(updated_pending, fy, months, report_dir)
+
+        self.after(0, _after)
+
+    def _write_final_reports(self, pending: dict, fy: str, months: list[str], report_dir, errors: list | None = None):
+        """Write reports for all suppliers in pending dict (starts a background thread)."""
+        def _run():
+            reports: list[str] = []
+            for supplier_name, data in pending.items():
+                try:
+                    out_files = write_report(
+                        supplier_name, fy, months, data["mismatches"], report_dir
+                    )
+                    reports.extend(str(f) for f in out_files)
+                    self.after(0, lambda n=supplier_name, c=len(out_files): self._log(
+                        f"[{n}] {c} report file(s) saved.", level="SUCCESS"))
+                except Exception as exc:
+                    err_msg = f"{supplier_name}: {exc}"
+                    self.after(0, lambda m=err_msg: self._log(m, level="ERROR"))
+
+            err_count = len(errors) if errors else 0
+
             def _done():
                 self._validate_btn.configure(state=tk.NORMAL)
                 self._set_status(
                     f"Validation done. {len(reports)} report(s) saved."
-                    + (f" {len(errors)} error(s)." if errors else "")
+                    + (f" {err_count} error(s)." if err_count else "")
                 )
-                if errors:
-                    self._log(
-                        f"Validation complete — {len(reports)} report(s), {len(errors)} error(s).",
-                        level="WARN",
-                    )
-                else:
-                    self._log(
-                        f"Validation complete — {len(reports)} report(s), no errors.",
-                        level="SUCCESS",
-                    )
+                level = "WARN" if err_count else "SUCCESS"
+                self._log(
+                    f"Validation complete — {len(reports)} report(s)"
+                    + (f", {err_count} error(s)." if err_count else ", no errors."),
+                    level=level,
+                )
 
             self.after(0, _done)
 
