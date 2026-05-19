@@ -87,6 +87,10 @@ def _build_index(row: pd.Series, index_keys: list[str], feature_map: dict[str, s
     return "-".join(parts).replace(" ", "").upper()
 
 
+# Public alias used by re-validation in app.py
+build_index = _build_index
+
+
 # --------------------------------------------------------------------------- #
 # Pricing Template loader
 # --------------------------------------------------------------------------- #
