@@ -1111,6 +1111,8 @@ class App(tk.Tk):
     ):
         """Show the iterative re-validation dialog (runs on the main thread)."""
         dlg = tk.Toplevel(self)
+        dlg.withdraw()                    # hide until positioned to avoid jump
+        dlg.transient(self)               # always above main window on Windows
         dlg.title(f"Re-validate Mismatches — Pass {pass_num}")
         dlg.configure(bg=BG)
         dlg.resizable(False, False)
@@ -1195,6 +1197,7 @@ class App(tk.Tk):
         px = self.winfo_rootx() + (self.winfo_width() - dlg.winfo_width()) // 2
         py = self.winfo_rooty() + (self.winfo_height() - dlg.winfo_height()) // 2
         dlg.geometry(f"+{max(0, px)}+{max(0, py)}")
+        dlg.deiconify()                   # show at correct position (no jump)
         dlg.lift()
         dlg.focus_force()
 
@@ -1243,10 +1246,13 @@ class App(tk.Tk):
                 f"[{n}] Re-validate pass {pass_num - 1}→ {c} mismatch(es).",
                 level="WARN" if c else "SUCCESS"))
 
-            # Carry forward original full DFs so further passes still have full context
+            # Carry forward the rebuilt subsets so the next pass can subset by the
+            # new index_value strings (which were computed with new_index_keys above).
+            # Storing the original full DFs would break pass 3+ because their
+            # __index__ column uses the original keys, not new_index_keys.
             updated_pending[supplier_name] = {
-                "df_pt": data["df_pt"],
-                "df_shp": data["df_shp"],
+                "df_pt": df_pt_sub,
+                "df_shp": df_shp_sub,
                 "mismatches": new_mismatches,
             }
 

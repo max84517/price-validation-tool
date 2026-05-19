@@ -10,7 +10,7 @@ Built with Python, Tkinter dark-mode UI, pandas, and openpyxl.
 
 Download the latest release from the [Releases page](https://github.com/max84517/price-validation-tool/releases/latest).
 
-1. Download `PriceValidation-v1.3.0.zip`
+1. Download `PriceValidation-v1.4.0.zip`
 2. Extract the zip to any folder (keep all files together)
 3. Run **`PriceValidation.exe`**
 
@@ -148,16 +148,18 @@ Click **Validate** to open the configuration dialog:
 |---|---|
 | **Fiscal Year** | Auto-detected from the Pricing Template sheet name (e.g. `FY25`). No manual input required. |
 | **Months** | Select one or more months (Jan – Nov). |
-| **Cross-check Index** | Select  2 fields to build a composite key used for matching rows between both files. Fields are joined with `-`, spaces removed, uppercased. |
-| **Allow: Master Table has entry but Supplier Shipment doesn't** | Tick to suppress reporting of items that exist in the master table but are absent from the shipment. |
+| **Cross-check Index** | Select ≥ 2 fields to build a composite key used for matching rows between both files. Fields are joined with `-`, spaces removed, uppercased. |
+| **Allow PT-only entries** | Tick to suppress reporting of items that exist in the master table but are absent from the shipment. Enabled by default. |
+| **Suppress blank-cell match warnings** | Tick to hide warnings where one cell is blank but both sides resolve to the same value (0). Enabled by default. |
 
 The tool then:
 1. Loads and filters the `InputDevice` sheet to rows where `GTK Suppliers` matches the supplier name.
 2. Loads the `FY<YY>` sheet from the supplier's shipment file (header on row 2).
 3. Drops shipment rows with a blank `Platforms` column.
 4. Builds the composite index on both sides.
-5. Compares rebate values for each selected month. Blank cells are treated as `0`  a warning record is emitted if both sides resolve to the same value via this substitution.
-6. Generates a report workbook.
+5. Compares rebate values for each selected month. Blank cells are treated as `0` — a warning record is emitted if both sides resolve to the same value via this substitution.
+6. If mismatches are found, an **Iterative Re-validate** dialog appears showing a per-supplier breakdown. You can choose a different set of index fields and click **Re-validate with new index** to run another pass against only the mismatch rows, or click **Finish & Generate Report** to write the report immediately.
+7. Generates a report workbook.
 
 ### 6. Report Format
 
@@ -216,6 +218,18 @@ Columns: `HP/ODM Part#`, `Color`, `Product`, `Size`, `ODM & Site`, `GTK Supplier
 ---
 
 ## Changelog
+
+### v1.4.0
+- **Iterative Re-validate dialog**: after initial validation, if mismatches are found a dialog shows a per-supplier breakdown and lets you pick a new cross-check index. Click **Re-validate with new index** to re-run only the mismatch rows with the new index (repeatable). Click **Finish & Generate Report** at any time to write the final report.
+- **Suppress blank-cell match warnings** option (default on): hides records where one cell is blank but both sides compare equal as 0.
+- **Allow PT-only entries** now defaults to on (previously off).
+- **Matching improvement**: when the Master Table has duplicate rows for the same index key, the tool now picks the row with the fewest price differences against the shipment row instead of always taking the first row.
+- Fixed: re-validation pass 3+ no longer incorrectly reports zero mismatches (index key mismatch between passes was causing empty subsets).
+- Fixed: re-validate dialog no longer flickers to the top-left corner on first show; always appears centred above the main window.
+
+### v1.3.0
+- NB KB source folder now accepts a combined folder containing both bNB and cNB supplier sub-folders (no longer requires separate bNB / cNB folders).
+- Build PT now warns when a selected FY sheet is missing for some suppliers and lets you continue or cancel.
 
 ### v1.2.1
 - Added **Check Files** button next to Build PT. Scans all source folders and shows the latest Excel filename and modified date for every supplier. Entries not updated in the current month are flagged with a ⚠ warning icon (hover to see tooltip).
