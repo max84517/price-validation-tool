@@ -210,37 +210,33 @@ class ValidateConfigDialog(tk.Toplevel):
             cb.grid(row=i, column=0, sticky="w")
             self._index_vars[key] = var
 
-        # Allow options
-        allow_frame = tk.Frame(self, bg=BG)
-        allow_frame.grid(row=3, column=0, columnspan=2, sticky="w", padx=16, pady=(4, 0))
-        tk.Label(allow_frame, text="Allow (skip reporting):", bg=BG, fg=FG,
-                 font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT)
+        # Options
+        opt_frame = tk.Frame(self, bg=BG)
+        opt_frame.grid(row=3, column=0, columnspan=2, sticky="w", padx=16, pady=(4, 0))
+        tk.Label(opt_frame, text="Options:", bg=BG, fg=FG,
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w")
         self._allow_pt_only_var = tk.BooleanVar(value=True)
         cb_pt_only = tk.Checkbutton(
-            allow_frame,
-            text="Master Table has entry but Supplier Shipment doesn't",
+            opt_frame,
+            text="Allow PT-only entries (skip reporting when Master Table has entry but Supplier Shipment doesn't)",
             variable=self._allow_pt_only_var,
             bg=BG, fg=FG, selectcolor=BG3, activebackground=BG, activeforeground=FG,
             font=("Segoe UI", 9),
         )
-        cb_pt_only.pack(side=tk.LEFT, padx=(8, 0))
-
-        # Suppress blank-cell match warnings
-        warn_frame = tk.Frame(self, bg=BG)
-        warn_frame.grid(row=4, column=0, columnspan=2, sticky="w", padx=16, pady=(2, 0))
+        cb_pt_only.pack(anchor="w", padx=(8, 0))
         self._suppress_blank_var = tk.BooleanVar(value=True)
         cb_blank = tk.Checkbutton(
-            warn_frame,
-            text="Suppress blank-cell match warnings",
+            opt_frame,
+            text="Suppress blank-cell match warnings (matched values where one cell was blank)",
             variable=self._suppress_blank_var,
             bg=BG, fg=FG, selectcolor=BG3, activebackground=BG, activeforeground=FG,
             font=("Segoe UI", 9),
         )
-        cb_blank.pack(side=tk.LEFT)
+        cb_blank.pack(anchor="w", padx=(8, 0))
 
         # Buttons
         btn_frame = tk.Frame(self, bg=BG)
-        btn_frame.grid(row=5, column=0, columnspan=2, pady=(8, 14))
+        btn_frame.grid(row=4, column=0, columnspan=2, pady=(8, 14))
         start_btn = tk.Button(btn_frame, text="Start Validate", command=self._start)
         _style_button(start_btn, accent=True)
         start_btn.pack(side=tk.LEFT, padx=6)
@@ -1085,10 +1081,16 @@ class App(tk.Tk):
                     self._set_status(f"Validation failed. {len(errors)} error(s).")
                     return
                 if total_mismatches > 0:
-                    self._show_revalidate_dialog(
-                        pending, fy, months, index_keys, allow_pt_only, suppress_blank,
-                        report_dir, pass_num=1
-                    )
+                    try:
+                        self._show_revalidate_dialog(
+                            pending, fy, months, index_keys, allow_pt_only, suppress_blank,
+                            report_dir, pass_num=1
+                        )
+                    except Exception as exc:
+                        import traceback
+                        self._log(f"Re-validate dialog error: {exc}\n{traceback.format_exc()}",
+                                  level="ERROR")
+                        self._validate_btn.configure(state=tk.NORMAL)
                 else:
                     self._write_final_reports(pending, fy, months, report_dir, errors=errors)
 
@@ -1113,14 +1115,6 @@ class App(tk.Tk):
         dlg.configure(bg=BG)
         dlg.resizable(False, False)
         dlg.grab_set()
-
-        # Centre over main window
-        self.update_idletasks()
-        px, py = self.winfo_rootx(), self.winfo_rooty()
-        pw, ph = self.winfo_width(), self.winfo_height()
-        dlg.update_idletasks()
-        w, h = dlg.winfo_width(), dlg.winfo_height()
-        dlg.geometry(f"+{px + (pw - w)//2}+{py + (ph - h)//2}")
 
         pad = {"padx": 16, "pady": 6}
 
@@ -1195,6 +1189,14 @@ class App(tk.Tk):
         fin_btn = tk.Button(btn_frame, text="Finish & Generate Report", command=_on_finish)
         _style_button(fin_btn)
         fin_btn.pack(side=tk.LEFT, padx=6)
+
+        # Centre and bring to front after all widgets are laid out
+        dlg.update_idletasks()
+        px = self.winfo_rootx() + (self.winfo_width() - dlg.winfo_width()) // 2
+        py = self.winfo_rooty() + (self.winfo_height() - dlg.winfo_height()) // 2
+        dlg.geometry(f"+{max(0, px)}+{max(0, py)}")
+        dlg.lift()
+        dlg.focus_force()
 
     def _do_revalidation(
         self,
